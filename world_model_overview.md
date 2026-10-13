@@ -590,6 +590,18 @@ WAM에서는 $x$가 영상 latent와 행동을 함께 담을 수 있다. **둘�
 
 > 아래 컵 예시는 **설명을 위해 구성한 가상 실험**이다. World Models 논문의 실제 제어 실험은 CarRacing과 VizDoom이다. 로봇 팔에서 실험했다고 이해해서는 안 된다.
 
+#### 먼저 학습 방식부터: 함께 작동하지만 별도로 훈련한다
+
+**V → M → C는 하나의 end-to-end loss로 동시에 업데이트되는 구조가 아니다.** 논문에서는 실제 환경의 영상·행동 trajectory로 V를 먼저 학습하고, V가 얻은 latent sequence로 M을 학습한 다음, **학습된 V·M을 고정한 상태에서 C의 파라미터만** reward 기반으로 최적화한다.
+
+| 학습 단계 | 사용하는 데이터 | 업데이트하는 파라미터 | 목표 |
+|---|---|---|---|
+| **① V 학습** | 실제 각 frame의 이미지 $o_t$ | VAE encoder·decoder | 이미지 reconstruction + standard normal prior와의 KL |
+| **② M 학습** | V가 변환한 $z_t$, 실제 action $a_t$, 다음 latent $z_{t+1}$의 sequence | MDN-RNN | **다음 latent의 확률분포**가 실제 다음 latent에 높은 확률을 부여하도록 학습 |
+| **③ C 학습** | 고정된 V/M이 제공하는 $z_t,h_t$ 및 실제 환경 또는 dream 환경의 episode 결과 | Linear controller $W_c,b_c$ | CMA-ES로 **누적 reward** 최대화 |
+
+여기서 '분리'는 **학습 목적과 파라미터 업데이트가 분리된다**는 뜻이다. **실행할 때에는 V, M, C가 하나의 시스템으로 연결**되어 현재 관측을 처리하고 행동을 낸다. M의 hidden state를 C가 입력받지만, C의 reward gradient가 역전파되어 V·M을 함께 갱신하는 방식은 아니다. 아래 과정이 논문의 기본 실험 구성이다.
+
 #### 먼저 기호와 실제 입력을 대응하자
 
 | 변수 | 컵 옮기기 예시에서 뜻 | 실제 데이터인지, 학습한 내부 표현인지 |
@@ -621,6 +633,16 @@ WAM에서는 $x$가 영상 latent와 행동을 함께 담을 수 있다. **둘�
 
 $z_1$을 본 뒤 $a_1=$ “그리퍼를 닫기”를 실행한다고 하자. MDN-RNN은 현재 $z_1$, 동작 $a_1$, 기존 memory $h_1$으로 **다음 영상의 latent $z_2$에 대한 조건부 분포**를 예측한다.
 
+**M은 단순한 feed-forward predictor가 아니라, 시간을 따라 memory를 갱신하는 RNN이다.** 한 timestep의 구조를 개념적으로 쓰면 다음과 같다.
+
+```math
+h_{t+1}=f_{\mathrm{RNN}}(h_t,z_t,a_t),\qquad
+(\pi_{t,k},\mu_{t,k},\Sigma_{t,k})_{k=1}^{K}
+=g_{\mathrm{MDN}}(h_t,z_t,a_t).
+```
+
+여기서 $h_t$는 이전 영상 latent와 행동의 정보를 반복적으로 축적한 **RNN hidden vector**다. 동일한 현재 이미지 $o_t$라도 과거에 컵이 오른쪽으로 움직이고 있었는지 왼쪽으로 움직이고 있었는지에 따라 $h_t$가 달라질 수 있다. $f_{mathrm{RNN}},g_{mathrm{MDN}}$은 역할을 설명하기 위한 추상 표기이며, 구현에서는 RNN 출력에서 MDN 파라미터를 계산한다. **과거 frame 전체를 원본 이미지로 저장한다는 뜻은 아니다.**
+
 ```math
 p_\theta(z_{t+1}\mid z_t,a_t,h_t)
 =\sum_{k=1}^K\pi_{t,k}
@@ -629,6 +651,15 @@ p_\theta(z_{t+1}\mid z_t,a_t,h_t)
 ```
 
 컵이 잘 잡힐 수도 있고 미끄러질 수도 있어서 여러 미래가 가능하다. Mixture는 이런 다중 가능성을 표현할 수 있으나, **각 component가 '잡기 성공'과 '실패'라는 이름으로 감독되는 것은 아니다.**
+
+**분포를 학습한다는 말의 정확한 의미:** M의 출력은 하나의 확정된 예측 벡터 $\hat z_{t+1}$가 아니라 **mixture weight $\pi_{t,k}$, 평균 $\mu_{t,k}$, 분산/공분산 $\Sigma_{t,k}$** 같은 확률분포의 파라미터다. 실제 학습에서는 다음 frame $o_{t+1}$을 VAE에 통과시켜 얻은 $z_{t+1}$의 **negative log-likelihood**를 최소화한다.
+
+```math
+\mathcal L_M
+=-\sum_t\log p_\theta(z_{t+1}\mid z_t,a_t,h_t).
+```
+
+예를 들어 컵이 잡히거나 미끄러지는 두 미래가 모두 가능하다면 둘 중 하나만 평균값으로 회귀하기보다, **두 미래에 일정한 확률을 부여하는 분포**를 학습할 수 있다. 실제로 다음 latent가 필요할 때는 이 분포에서 $z_{t+1}$을 **sampling**한다. 그렇다고 C가 매 행동 결정을 할 때마다 미래 latent를 샘플링해야 한다는 뜻은 아니다. **일반적인 실제 환경 실행에서 C는 현재 $z_t,h_t$로 바로 행동한다.**
 
 - **입력:** 현재 VAE latent $z_t$, 이미 실행한 action $a_t$, 과거 history $h_t$.
 - **Training target:** 실제 행동 뒤 얻은 **다음 센서 영상 $o_{t+1}$을 VAE로 encoding한 latent $z_{t+1}$**.
@@ -664,7 +695,9 @@ a_t=W_c[z_t;h_t]+b_c.
 \longrightarrow a_{t+1}\longrightarrow\cdots
 ```
 
-컵 예제로는 “실제로 컵을 잡지 않고도, 잡는 행동이 만든 미래 latent”를 시뮬레이션하는 셈이다. **논문에서는 VizDoom에서 dream training을 시도**했다. 하지만 model이 컵을 항상 잡힌 것으로 잘못 상상한다면 controller는 그 오류를 악용할 수 있다(model exploitation). 저자들은 sampling **temperature**가 꿈속 학습의 견고성에 미치는 영향을 탐구했다.
+컵 예제로는 “실제로 컵을 잡지 않고도, 잡는 행동이 만든 미래 latent”를 시뮬레이션하는 셈이다. **논문에서는 VizDoom에서 dream training을 시도**했다. 이때 M은 다음 latent뿐 아니라 episode가 종료되는지에 관한 신호도 예측하도록 학습된다. VizDoom의 '가능한 한 오래 살아남기' 작업에서는 이렇게 구성한 **가상 episode의 생존 시간**으로 C를 평가할 수 있다. **M이 RGB 이미지를 디코딩하고, 그 이미지를 별도의 reward network에 입력하는 구조가 아니다.** C는 가상 환경에서도 $z_t,h_t$만으로 행동을 선택할 수 있다.
+
+반면 CarRacing의 Controller 학습은 실제 게임 환경에서 주어진 reward를 기반으로 한다. 두 경우 모두 **V와 M은 고정하고 C만 CMA-ES로 최적화**한다. 하지만 가상 모델이 컵을 항상 잡힌 것으로 잘못 상상한다면 controller는 그 오류를 악용할 수 있다(model exploitation). 저자들은 미래 latent sampling의 **temperature**가 dream training의 견고성에 미치는 영향을 탐구했다.
 
 #### 무엇을 해결했고 무엇이 남았는가?
 
@@ -672,7 +705,7 @@ a_t=W_c[z_t;h_t]+b_c.
 - **한계:** learned dynamics가 틀리면 가상 환경에서 높은 reward를 받는 행동이 현실에서 실패할 수 있다. 작고 단순한 controller와 CMA-ES가 복잡한 실제 로봇 전체에 곧바로 적합한 것은 아니다.
 - **다음 질문:** Controller를 한 번 훈련시키는 대신, **현재 컵 위치에서 여러 행동열을 latent로 시뮬레이션하고 직접 비교**할 수 있을까? → **PlaNet**.
 
-**이 절을 읽은 뒤 설명할 것:** V의 입력/target, M의 입력/target, C의 학습 목표를 컵 예제로 각각 한 문장씩 말해 보자.
+**이 절을 읽은 뒤 설명할 것:** V의 입력/target, M의 입력/target, C의 학습 목표를 컵 예제로 각각 한 문장씩 말해 보자. 추가로 (1) 왜 세 모듈은 *함께 작동하지만 end-to-end로 공동 업데이트하지 않는지*, (2) MDN-RNN은 왜 다음 latent의 *분포*를 출력하는지, (3) $h_t$는 매 timestep 어떻게 갱신되는지, (4) dream training의 reward는 어디서 얻는지를 구분해 보자.
 
 ---
 
@@ -1442,6 +1475,7 @@ WAM은 세계 예측과 실행 가능한 행동 선택의 연결을 핵심으로
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-10-13 | 5.2절 World Models의 V·M·C **순차·분리 학습**, MDN의 조건부 **미래 latent 분포 학습**, RNN memory $h_t$의 시점별 갱신 및 실제 환경/dream 환경의 Controller reward 획득 방식을 보강 |
 | 2026-10-13 | 전 절을 컵 옮기기 공통 예제로 다시 연결: 학습 데이터·기호 대응·모델별 prediction target·action 결정 과정·설명용 수치 및 실제 논문 실험과의 구별 보강 |
 | 2026-10-13 | 4절 도입부에 학습 데이터와 예측 대상, 공 밀기 예시, RSSM → MPC → Dreamer → 생성·실시간 제어 흐름을 간결하게 추가 |
 | 2026-10-13 | 4.1절의 prior $p_\theta$ / approximate posterior $q_\phi$의 의미와 deterministic $u_t$ / stochastic $z_t$의 차이를 수식, 예시, 학습·rollout 순서로 보충; FAQ·용어집 업데이트 |
