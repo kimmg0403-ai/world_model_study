@@ -1,0 +1,707 @@
+# World Model과 World Action Model — 개념·논문·연구 흐름 학습 노트
+
+> **마지막 조사·정리: 2026-10-13 (한국 시간)**
+>
+> **목표:** “세계를 예측하는 모델이 어떻게 행동하는 에이전트가 되는가?”를 기초부터 설명하고, 핵심 논문을 연결해서 읽는다.
+>
+> **범위:** 모델 기반 강화학습, 영상·잠재표현 기반 세계 모델, 로봇 World Action Model(WAM). 전체 문헌을 망라하는 목록이 아니라 핵심 계보와 최근 쟁점을 선별한 학습 지도다. 최신 항목은 2026-10-08 공개 논문까지 포함한다.
+>
+> **읽는 기준:** 논문에 근거한 설명에는 원문 링크를 붙였다. ‘해석’, ‘한계’, ‘읽을 질문’은 이 노트의 학습용 정리이며, 별도 실험으로 입증한 주장이 아니다. 수식은 공통 구조를 이해하기 위한 단순화이며 각 논문의 정확한 구현과 구분한다. 최근 프리프린트의 결과는 저자가 보고한 해당 실험 범위에서 읽는다.
+
+<a id="contents"></a>
+## 목차
+
+1. [먼저 보는 핵심 지도와 연표](#map)
+2. [기초 개념: 무엇을 모델링하는가?](#basics)
+3. [수학적 언어: 상태·관측·행동·목표](#math)
+4. [어떻게 학습하고 행동하는가?](#mechanisms)
+5. [필독 논문 I: 모델 기반 RL과 상상 학습](#papers-rl)
+6. [필독 논문 II: 영상·표현 기반 세계 모델](#papers-foundation)
+7. [필독 논문 III: VLA에서 WAM으로](#papers-wam)
+8. [2026년 최신 쟁점과 추가 읽기](#recent)
+9. [대표 방법 비교와 논문 평가법](#evaluation)
+10. [권장 공부 순서와 작은 실험](#study)
+11. [자주 헷갈리는 질문과 이해도 점검](#faq)
+12. [용어 사전](#glossary)
+13. [후속 질문·수정 기록](#notebook)
+14. [원문과 공식 자료 모음](#references)
+
+---
+
+<a id="map"></a>
+## 1. 먼저 보는 핵심 지도와 연표
+
+### 1.1 다섯 문장으로 잡는 큰 그림
+
+1. **World Model(WM)**은 경험으로부터 환경의 구조와 변화 규칙을 배워, 현재 정보와 가능한 행동을 바탕으로 미래를 예측하는 모델이다. 다만 영상 생성 연구에서는 행동 입력 없이 미래 영상을 만드는 모델까지 넓게 부르므로, 논문마다 정의를 확인해야 한다.
+2. **Policy(정책)**는 “무엇을 할지” 결정한다. WM은 “그렇게 하면 무엇이 일어날지” 예측한다. 두 기능은 분리할 수도, 하나의 네트워크 안에 결합할 수도 있다.
+3. **모델 기반 RL**은 학습한 세계 모델로 계획하거나 가상 경험을 만들어 정책을 개선한다. PlaNet, Dreamer, MuZero가 대표적인 서로 다른 설계다.
+4. **Foundation World Model**은 대규모 영상 등으로 사전학습한 세계 예측 기반 모델을 여러 환경과 작업에 적응시키려는 방향이다. 사전학습 데이터가 커도, 정밀한 행동 조건화와 물리적 정확성이 자동으로 보장되지는 않는다.
+5. **World Action Model(WAM)**은 최근 로봇 연구에서 미래 관측·세계 표현과 행동을 함께 모델링하는 접근을 가리킨다. DreamZero는 중요한 사례지만, 영상에서 행동을 얻거나 영상과 행동을 공동 학습하는 아이디어는 그 이전부터 발전했다. [정의 논의](https://arxiv.org/abs/2607.06401), [DreamZero](https://arxiv.org/abs/2602.15922), [UniPi](https://arxiv.org/abs/2302.00111)
+
+### 1.2 발전은 하나의 직선이 아니라 합류하는 여러 계보다
+
+~~~text
+학습한 환경 모델로 가상 경험 활용
+  Dyna → World Models → PlaNet → Dreamer 1/2/3 → Dreamer 4
+                         └ 온라인 계획           └ 큰 영상 모델 + 상상 속 RL
+
+의사결정에 필요한 표현을 학습
+  MuZero ────────────────────┐
+  TD-MPC / TD-MPC2 ───────────┼→ “모든 픽셀을 복원할 필요가 있는가?”
+  JEPA → V-JEPA → V-JEPA 2/2.1┘
+
+영상 생성과 상호작용 환경
+  영상 예측 → IRIS / DIAMOND / Diffusion Forcing
+           → Genie 계열 / Cosmos 계열
+
+언어·시각에서 로봇 행동으로
+  RT-2 / π0 / π0.5                   : 관측·언어 → 행동
+  UniPi                              : 미래 영상 → 역동역학 → 행동
+  UVA / WorldVLA                     : 영상·행동 공동 모델링
+  Cosmos Policy / DreamZero          : 사전학습 영상 모델을 제어로 연결
+  2026 후속 연구                     : 행동에 맞는 표현·속도·계획 범위·실행 상태
+~~~
+
+위 화살표는 **학습용 개념 연결**이다. 모든 방법이 바로 앞 방법의 직접 후속작이거나 동일한 아키텍처를 쓴다는 의미는 아니다.
+
+### 1.3 핵심 연표
+
+연도는 원칙적으로 최초 공개 기준이다. 예컨대 PlaNet은 2018년 프리프린트 / ICML 2019, Dreamer는 2019년 프리프린트 / ICLR 2020이다.
+
+| 최초 공개 | 논문·시스템 | 바뀐 질문 | 읽기 우선순위 |
+|---|---|---|---|
+| 1990–1991 | Dyna | 실제 경험과 모델이 만든 경험을 함께 쓰면? | 역사적 배경 |
+| 2018 | World Models | 영상 압축·시간 예측·제어를 분리하면? | 필독 |
+| 2018 | PlaNet | 픽셀에서 배운 잠재 동역학으로 온라인 계획하면? | 필독 |
+| 2019 | Dreamer | 계획을 매번 탐색하는 대신 상상 속에서 정책을 학습하면? | 필독 |
+| 2019 | MuZero | 화면 복원 대신 보상·정책·가치만 예측하면? | 필독 |
+| 2020 | DreamerV2 | 이산 잠재변수로 상상 학습을 개선하면? | 연결 읽기 |
+| 2022 | LeCun의 자율지능 구상 | 예측 불가능한 픽셀 대신 추상 표현을 예측하면? | 관점 읽기 |
+| 2022 | IRIS | 이미지 토큰의 Transformer가 세계 모델이 되면? | 연결 읽기 |
+| 2023 | DreamerV3 | 여러 도메인에서 하나의 설정으로 학습하면? | 필독 |
+| 2023 | UniPi | 언어 목표에 맞는 미래 영상에서 행동을 얻으면? | WAM 계보 필독 |
+| 2023 | Diffusion Policy / RT-2 | 확산 행동 정책 / 웹 지식 기반 VLA | 비교용 필독 |
+| 2023 | TD-MPC2 | 제어에 맞춘 decoder-free 잠재 모델을 확장하면? | 필독 |
+| 2024 | V-JEPA / Genie / DIAMOND | 표현 예측 / 잠재 행동 / 확산 세계 모델 | 분기별 필독 |
+| 2024 | Diffusion Forcing / π0 | 시퀀스 확산의 조건화 / 연속 행동 생성 | 연결 읽기 |
+| 2025-01 | Cosmos | 세계 모델 사전학습을 공통 플랫폼으로 만들면? | 연결 읽기 |
+| 2025-02 | UVA | 영상과 행동을 함께 배우면서 추론은 빠르게 하면? | WAM 필독 |
+| 2025-04 | π0.5 | 이질적인 데이터를 활용해 실제 환경 일반화를 높이면? | 비교용 |
+| 2025-06 | V-JEPA 2 / WorldVLA | 표현 공간 계획 / 자기회귀 영상·행동 통합 | 필독 |
+| 2025-08 | Genie 3 | 실시간 상호작용 세계를 생성하면? | 공식 발표 참고 |
+| 2025-09 | Dreamer 4 | 큰 세계 모델 안에서 오프라인 데이터로 RL하면? | 필독 |
+| 2026-01 | Cosmos Policy | 영상 모델에 행동·미래 관측·가치를 넣으면? | WAM 필독 |
+| 2026-02 | DreamZero | 영상과 행동의 공동 생성으로 새 동작에 일반화하면? | WAM 필독 |
+| 2026-03 | V-JEPA 2.1 | 공간·시간에 조밀한 표현이 제어에 도움이 되면? | 최신 연결 |
+| 2026-06 | Cosmos 3 / AGRA | 모달리티 통합 / 예측 표현을 행동에 정렬 | 최신 쟁점 |
+| 2026-09 | WAM 설계 연구 / ReWAM / Planning Limits | 무엇이 성능을 만들고, 계획은 어디까지 가능한가? | 비판적 읽기 |
+| 2026-10 | HWAM | 명령한 행동과 실제 몸의 움직임 사이를 모델링하면? | 최신 프리프린트 |
+
+원문은 [14절의 자료 목록](#references)에서 바로 열 수 있다.
+
+---
+
+<a id="basics"></a>
+## 2. 기초 개념: 무엇을 모델링하는가?
+
+### 2.1 컵을 집는 로봇으로 생각하기
+
+로봇에게 “컵을 집어서 오른쪽 선반에 놓아라”라고 지시했다고 하자.
+
+- **관측:** 카메라 영상, 관절 각도, 그리퍼 상태. 컵의 정확한 질량이나 마찰계수는 바로 보이지 않는다.
+- **상태:** 컵과 로봇의 위치·속도·접촉 상태 등 환경의 실제 조건. 관측보다 넓다.
+- **행동:** 관절 목표, 말단장치의 위치 변화, 그리퍼 개폐 등 로봇에 보내는 명령.
+- **세계 모델:** “이쪽으로 이동해서 그리퍼를 닫으면 컵이 잡힐까, 밀려날까?”를 예측한다.
+- **정책:** 실제로 보낼 행동을 결정한다.
+- **목표·보상·가치:** 무엇을 성공으로 볼지, 지금 행동이 장기 성공에 얼마나 유리할지 나타낸다.
+
+이 예에서 중요한 것은 멋진 집기 영상을 만드는 능력뿐 아니라 **행동을 조금 바꿨을 때 결과가 어떻게 달라지는지 구별하는 능력**이다.
+
+### 2.2 Model-free와 model-based
+
+| 구분 | 핵심 학습 대상 | 행동을 얻는 방식 | 주의할 점 |
+|---|---|---|---|
+| Model-free RL | 정책 또는 가치 | 실제 경험 등으로 직접 개선한 정책·가치 사용 | 내부에 기억이나 환경 지식이 없다는 뜻은 아님 |
+| Model-based RL | 환경의 전이·보상 등에 대한 모델 | 모델을 이용한 계획 또는 가상 경험 학습 | 모델 오차를 이용하는 잘못된 행동이 나올 수 있음 |
+| Imitation learning | 시연 행동 분포 | 관측·목표에서 시연과 유사한 행동 생성 | 보상 최대화 RL과 동일하지 않음 |
+| WAM 기반 정책 학습 | 미래 관측·표현과 행동의 관계 | 공동 생성, 역동역학, 또는 추가 계획 | 반드시 RL로 학습하거나 탐색하는 것은 아님 |
+
+**“모델이 크다”, “Transformer다”, “추론 중 생각한다”만으로 model-based라고 판정하지 않는다.** 학습한 환경 예측을 의사결정에 어떻게 사용하는지 봐야 한다.
+
+### 2.3 세 가지 예측을 구별하기
+
+| 이름 | 질문 | 단순화한 형태 |
+|---|---|---|
+| Forward dynamics, 정동역학 | 지금 이 행동을 하면 어떻게 되는가? | `p(o_{t+1} \| h_t, a_t)` |
+| Inverse dynamics, 역동역학 | 지금 모습에서 저 모습으로 가려면 어떤 행동이 필요한가? | `p(a_t \| o_t, o_{t+1})` |
+| Policy, 정책 | 목표를 위해 지금 무엇을 할 것인가? | `π(a_t \| h_t, g)` |
+
+여기서 `h_t`는 지금까지의 관측·행동 이력이고, `g`는 목표다. 표 안의 `\|`는 조건부 확률의 세로줄을 Markdown 표에 안전하게 표시한 것이다.
+
+역동역학은 정동역학의 단순한 행렬 역연산이 아니다. 동일한 관측 변화가 여러 행동으로 가능하거나, 가려진 접촉·힘 때문에 영상을 보고 행동을 유일하게 정할 수 없기 때문이다.
+
+### 2.4 World model이라는 이름으로 묶이는 세 종류
+
+1. **행동 조건부 시뮬레이터:** 후보 행동에 따라 미래가 어떻게 달라지는지 예측한다. 계획에 직접 연결하기 쉽다.
+2. **행동 입력 없는 영상·표현 예측기:** 장면의 시간적 변화에 대한 사전지식을 배운다. 로봇 제어에 쓰려면 행동과 연결하는 추가 학습이 보통 필요하다.
+3. **의사결정용 추상 모델:** 모든 관측을 복원하지 않고 보상·가치·목표 달성에 필요한 구조를 예측한다.
+
+이 분류는 상호 배타적이지 않다. 예컨대 웹 영상으로 행동 없는 사전학습을 하고, 로봇 행동 데이터로 조건부 모델을 만들 수 있다. [V-JEPA 2](https://arxiv.org/abs/2506.09985)
+
+### 2.5 무엇을 표현할 것인가?
+
+| 표현 | 장점 | 어려움 | 대표 연결 |
+|---|---|---|---|
+| 원본 영상 또는 복원 가능한 영상 latent | 사람이 미래를 확인하기 쉽고 영상 데이터를 활용하기 좋음 | 배경·조명처럼 제어와 덜 관련된 세부에도 용량 사용 | DIAMOND, Cosmos, DreamZero |
+| 예측용 embedding | 픽셀 복원 부담을 줄이고 의미·동작 정보에 집중 가능 | 거리의 작음이 목표 성공을 뜻하는지 검증 필요 | V-JEPA 2 |
+| 보상·가치 중심 latent | 의사결정 목적에 맞게 학습 | 다른 목표에 필요한 정보를 버릴 수 있음 | MuZero, TD-MPC2 |
+| 물체·입자·그래프·3D 상태 | 기하·상호작용 구조를 직접 표현 가능 | 상태 추출, 가려짐, 센서 연결이 어려움 | Graph Network-based Simulators |
+
+**두 종류의 latent를 혼동하지 말자.** 영상 VAE latent는 압축 후 복원하기 위한 표현이고, JEPA embedding은 예측과 이해를 위한 표현이다. 둘 다 잠재공간이지만 학습 목적이 다르다. 또한 세계 모델 연구 전체가 영상 생성 연구로 환원되지는 않는다. [GNS](https://arxiv.org/abs/2002.09405)
+
+---
+
+<a id="math"></a>
+## 3. 수학적 언어: 상태·관측·행동·목표
+
+### 3.1 최소한의 선수지식
+
+조건부 확률, 기댓값, 신경망의 손실함수와 역전파를 알면 개념 부분부터 읽을 수 있다. 심화 수식에는 다음이 필요하다.
+
+| 개념 | 여기서 필요한 수준 |
+|---|---|
+| MDP / POMDP | 실제 상태와 관측의 차이, 전이확률, 부분 관측 |
+| RL | 보상, 할인율, 정책, 가치함수, actor–critic |
+| VAE / 변분추론 | 관측을 압축하고 잠재변수 분포를 학습하는 이유 |
+| KL divergence | 두 분포의 차이를 손실로 제약하는 역할 |
+| Transformer | 토큰, attention, causal mask, KV cache |
+| Diffusion / flow matching | 잡음에서 데이터로 반복 생성하는 방식 |
+| MPC | 미래를 계획하되 일부만 실행하고 다시 계획하는 방식 |
+
+처음부터 모든 구현을 익히기보다, 각 개념이 등장하는 절에서 필요한 만큼 보충한다.
+
+### 3.2 POMDP 관점
+
+환경은 다음처럼 표현할 수 있다.
+
+$$
+s_{t+1}\sim P(s_{t+1}\mid s_t,a_t),\qquad
+o_t\sim O(o_t\mid s_t),\qquad
+r_t=R(s_t,a_t).
+$$
+
+- `s_t`: 실제 환경 상태.
+- `o_t`: 센서로 얻은 관측.
+- `a_t`: 환경에 적용한 행동.
+- `r_t`: `a_t`를 실행한 전이에 대응하는 보상.
+- `h_t=(o_0,a_0,\ldots,a_{t-1},o_t)`: 관측과 행동의 이력.
+- `b_t(s)=P(s_t=s\mid h_t)`: 가능한 실제 상태에 대한 믿음, 즉 belief.
+- `x_t`: 신경망이 학습한 압축 상태. 정확한 belief와 같다고 가정하지 않는다.
+
+정지 화면 한 장으로는 컵이 왼쪽으로 움직이는지 오른쪽으로 움직이는지 알기 어렵다. **부분 관측 때문에 기억과 이력 조건화가 필요하다.**
+
+학습한 세계 모델의 한 가지 일반형은 다음이다.
+
+$$
+p_\theta(x_{t+1},r_t,c_t\mid x_t,a_t),
+\qquad p_\theta(o_t\mid x_t).
+$$
+
+`c_t`는 전이 이후 에피소드가 계속될지 나타내는 continuation 변수다. 관측 decoder, 보상 head, continuation head는 모든 WM에 필수인 것은 아니다.
+
+### 3.3 정책과 계획의 목적
+
+$$
+\pi_\psi(a_t\mid h_t,g),\qquad
+J(\pi)=\mathbb E_{\pi,P}\left[\sum_{t=0}^{T-1}\gamma^t r_t\right].
+$$
+
+`γ`는 미래 보상의 할인율이다. 세계 모델로 계산한 예상 수익 `\hat J`가 커도 실제 환경의 `J`가 크다는 보장은 없다. 이것이 model bias 문제의 출발점이다.
+
+보상이 없는 목표 조건부 계획도 가능하다.
+
+$$
+a^\star_{t:t+H-1}
+=\arg\min_{a_{t:t+H-1}}
+\mathbb E_{\hat P_\theta}\left[
+d(\hat x_{t+H},x_g)+
+\eta\sum_{k=0}^{H-1}C(a_{t+k})
+\right].
+$$
+
+`x_g`는 목표 표현, `d`는 목표까지의 거리, `C`는 행동 비용이다. 이 수식은 **실제 세계가 아니라 모델이 예측한 세계 안에서 최적화**한다.
+
+### 3.4 WAM의 핵심 확률분포
+
+미래 관측열을 `O^+=o_{t+1:t+H}`, 행동열을 `A=a_{t:t+H-1}`라고 하면, 학습용 일반형은 다음과 같다.
+
+$$
+p_\theta(O^+,A\mid h_t,g).
+$$
+
+두 가지 분해가 가능하다.
+
+$$
+p_\theta(O^+,A\mid h_t,g)
+=
+p_\theta(O^+\mid h_t,g)\,
+p_\theta(A\mid O^+,h_t,g)
+$$
+
+$$
+=
+p_\theta(A\mid h_t,g)\,
+p_\theta(O^+\mid A,h_t,g).
+$$
+
+- 첫 번째는 **미래를 그린 다음 그 미래를 실현할 행동을 구한다**는 관점이다.
+- 두 번째는 **행동을 제안하고 그 결과를 예측한다**는 관점이다.
+- 실제 공동 생성 모델이 이 순서대로 두 개의 독립 모델을 실행한다는 뜻은 아니다.
+- 두 분해가 수학적으로 가능하다고 해서 아키텍처·attention mask·학습 절차가 동등한 것은 아니다.
+- 확률적 공동 모델링만으로 `P(O^+\mid \mathrm{do}(A))`라는 인과적 개입 효과를 정확히 배웠다고 결론 낼 수 없다.
+
+**핵심 질문:** 이 모델은 그럴듯한 미래와 행동의 상관관계를 배우는가, 아니면 내가 선택한 새로운 행동의 결과까지 믿을 만하게 예측하는가? [DreamZero `3.1](https://arxiv.org/html/2602.15922v1#S3.SS1), [WAM 설계 비교 연구](https://arxiv.org/abs/2609.24048)
+
+---
+
+<a id="mechanisms"></a>
+## 4. 어떻게 학습하고 행동하는가?
+
+### 4.1 RSSM: 기억과 불확실성을 함께 담기
+
+PlaNet과 초기 Dreamer 계열을 읽는 열쇠는 **Recurrent State-Space Model(RSSM)**이다. 단순화하면:
+
+$$
+u_t=f_\theta(u_{t-1},z_{t-1},a_{t-1}),
+$$
+
+$$
+p_\theta(z_t\mid u_t)
+\quad\text{와}\quad
+q_\phi(z_t\mid u_t,o_t),
+\qquad x_t=(u_t,z_t).
+$$
+
+- `u_t`: 과거를 누적하는 deterministic recurrent state.
+- `z_t`: 여러 가능한 상황을 나타내는 stochastic state.
+- **Prior** `p`: 현재 실제 관측 없이 미래를 예측할 때 사용.
+- **Posterior** `q`: 실제 관측을 보고 상태를 추정할 때 사용.
+
+훈련 때 관측을 본 posterior만 잘 맞고 prior가 나쁘면, 관측 없는 상상 rollout은 금방 무너진다. 따라서 양쪽을 연결해야 한다.
+
+다음은 관측·보상 예측과 latent regularization을 묶은 **개념적 손실**이다.
+
+$$
+\mathcal L_{\rm WM}
+=
+\sum_t\mathbb E_q[
+-\log p_\theta(o_t\mid x_t)
+-\log p_\theta(r_t\mid x_t,a_t)]
++\beta D_{\rm KL}
+\left(q_\phi(z_t\mid u_t,o_t)\,\|\,p_\theta(z_t\mid u_t)\right).
+$$
+
+continuation 예측 손실 등을 추가할 수 있다. 실제 논문은 보상 head의 입력·인덱스, KL balancing, free bits/free nats, stop-gradient, 이산 latent 등의 세부가 다르다. 위 수식을 그대로 모든 Dreamer 버전의 구현이라고 읽지 않는다. [PlaNet](https://arxiv.org/abs/1811.04551), [Dreamer](https://arxiv.org/abs/1912.01603)
+
+### 4.2 MPC: 매번 예상하고, 조금 실행하고, 다시 관측하기
+
+~~~text
+현재 관측 → 현재 latent 추정
+          → 후보 행동열 N개 생성
+          → 세계 모델에서 H단계 rollout
+          → 예상 보상·목표 거리·가치로 평가
+          → 가장 좋은 행동열의 첫 행동 또는 짧은 구간 실행
+          → 새 관측으로 다시 시작
+~~~
+
+CEM(Cross-Entropy Method)은 좋은 후보들만 남겨 행동열 샘플링 분포의 평균·분산을 갱신하는 방법이다. 이름의 cross-entropy가 분류 손실을 쓴다는 뜻은 아니다.
+
+**장점:** 실제 관측으로 오차를 자주 교정하고 목표가 달라져도 계획을 바꿀 수 있다.  
+**비용:** 후보 수 × rollout 길이 × 최적화 반복 횟수만큼 추론 비용이 증가한다.  
+**한계:** 짧은 예측이 먼 목표를 향한 좋은 행동을 구별할 충분한 신호를 제공하지 못할 수 있다. [PlaNet](https://arxiv.org/abs/1811.04551), [V-JEPA 2 계획 절](https://arxiv.org/html/2506.09985v1#S4), [Planning Limits](https://arxiv.org/abs/2609.39235)
+
+### 4.3 Dreamer: 상상 속에서 정책을 미리 학습하기
+
+MPC는 행동할 때 후보를 검색한다. Dreamer의 핵심은 **훈련 때 상상 rollout으로 actor와 critic을 개선해서, 실행할 때는 정책을 빠르게 호출하는 것**이다.
+
+~~~text
+실제 데이터 → 세계 모델 업데이트
+           → 실제 데이터에서 출발 상태 추정
+           → 정책으로 행동을 뽑아 latent 미래 상상
+           → 예상 보상·가치로 critic 학습
+           → 상상 속 성과가 좋아지도록 actor 학습
+           → 개선된 정책으로 실제 경험 수집
+~~~
+
+짧은 상상을 장기 가치와 연결하는 예가 λ-return이다.
+
+$$
+G^\lambda_t=\hat r_t+
+\gamma\hat c_t\left[(1-\lambda)V(\hat x_{t+1})
++\lambda G^\lambda_{t+1}\right],
+\qquad G^\lambda_{t+H}=V(\hat x_{t+H}).
+$$
+
+이는 단순화한 재귀식이다. 상상 구간 끝의 critic이 그 뒤의 보상을 추정한다. 하지만 부정확한 critic을 붙이면 먼 미래가 정확해지는 것은 아니다. Dreamer 버전별 actor gradient 구성도 서로 다르므로, “모든 버전이 순수하게 동역학 미분만 쓴다”고 일반화하지 않는다. [Dreamer](https://arxiv.org/abs/1912.01603), [DreamerV3](https://arxiv.org/abs/2301.04104)
+
+### 4.4 예측 오차가 누적되는 이유
+
+한 단계 후 예측 `\hat x_{t+1}`를 다시 입력해 `\hat x_{t+2}`를 만들면, 모델은 점점 실제 데이터에서 벗어난 상태를 보게 된다.
+
+세 가지 다른 문제가 있다.
+
+1. **동역학 오차:** 행동의 결과를 잘못 예측한다.
+2. **목표 평가 오차:** 예측은 맞아도 embedding 거리나 value가 성공을 잘 측정하지 못한다.
+3. **탐색·행동 오차:** 좋은 후보를 못 만들거나 계산 지연 때문에 예상과 다른 시점에 실행한다.
+
+“모델을 키운다”는 해결책은 이 세 문제 모두를 동시에 해결하지 않는다. 짧은 rollout, 재계획, 가치함수, 서브골, 데이터 확장, 불확실성 추정은 서로 다른 문제에 대응한다.
+
+### 4.5 Diffusion과 flow matching을 읽는 최소 수식
+
+행동이나 영상은 가능한 미래가 여러 개이므로 하나의 평균만 회귀하면 부자연스러울 수 있다. 확률적 생성 모델은 다양한 가능한 결과를 샘플링한다.
+
+DDPM의 대표적인 학습 형태:
+
+$$
+x_\tau=\sqrt{\bar\alpha_\tau}x_0+
+\sqrt{1-\bar\alpha_\tau}\epsilon,\qquad
+\mathcal L_{\rm noise}
+=\mathbb E\|\epsilon-\epsilon_\theta(x_\tau,\tau,\mathrm{cond})\|^2.
+$$
+
+여기서 `τ`는 **환경 시간 `t`와 다른 잡음 단계**다.
+
+Flow matching의 단순한 직선 경로 예:
+
+$$
+x_\tau=(1-\tau)\epsilon+\tau x_{\rm data},
+\qquad
+\mathcal L_{\rm FM}
+=\mathbb E\left\|
+v_\theta(x_\tau,\tau,\mathrm{cond})-
+(x_{\rm data}-\epsilon)
+\right\|^2.
+$$
+
+추론은 잡음에서 출발해 `dx/dτ=v_\theta`를 적분하는 과정이다. 실제 방법은 경로, 가중치, parameterization, solver가 달라진다.
+
+WAM에서는 `x`가 영상 latent와 행동을 함께 담을 수 있다. **둘을 같은 모델로 생성한다는 것과 실제 로봇 실행 결과가 정확히 일치한다는 것은 별도로 검증할 문제**다. [DDPM](https://arxiv.org/abs/2006.11239), [Flow Matching](https://arxiv.org/abs/2210.02747)
+
+### 4.6 행동 chunk, 실시간성, 폐루프
+
+- **Action chunk:** 매번 하나의 행동 대신 여러 미래 제어 명령을 생성한다.
+- **Open-loop:** 생성한 구간을 관측 갱신 없이 실행한다.
+- **Closed-loop:** 새 센서 관측을 반영해 행동을 갱신한다.
+- **Asynchronous execution:** 추론과 로봇 실행을 겹쳐 계산 지연을 줄인다.
+
+영상은 낮은 fps, 관절 제어는 높은 Hz로 동작할 수 있다. 따라서 “영상 16프레임”과 “행동 16개”가 같은 시간 길이를 뜻한다고 가정하면 안 된다. 논문에서 timestamp, chunk 길이, 실행 비율, latency를 확인한다.
+
+또한 **정책이 chunk를 갱신하는 주파수**와 **하위 제어기의 servo 주파수**는 다르다. DreamZero의 약 7 Hz 보고를 로봇의 모든 제어 루프가 7 Hz라는 뜻으로 읽지 않는다. [Diffusion Policy](https://arxiv.org/abs/2303.04137), [DreamZero](https://arxiv.org/html/2602.15922v1)
+
+
+---
+
+<a id="papers-rl"></a>
+## 5. 필독 논문 I: 모델 기반 RL과 상상 학습
+
+이 절은 **작은 환경에서 직접 상호작용하며 배운 모델을 어떻게 제어에 쓰는가**에 초점을 둔다. 각 논문은 먼저 구조 그림을 보고, 모델 학습 손실과 행동 선택 절차를 따로 읽는다.
+
+### 5.1 Dyna — 가상 경험도 학습 데이터가 된다
+
+**원문:** Sutton, *Dyna, an Integrated Architecture for Learning, Planning, and Reacting* (1991). [논문 DOI](https://doi.org/10.1145/122344.122377), [관련 초기 Dyna 장, MIT Press](https://direct.mit.edu/books/edited-volume/3977/chapter/165869/First-Results-with-Dyna-an-Integrated-Architecture)
+
+- **문제:** 실제 환경에서 얻는 경험은 비싸고 제한적이다.
+- **아이디어:** 실제 전이로 환경 모델을 학습하고, 그 모델이 만든 가상 전이로 가치·정책 학습을 추가한다.
+- **왜 중요한가:** 신경망·영상 생성 이전부터 “학습한 세계 안에서 연습하기”라는 구조가 존재했다.
+- **읽을 질문:** 모델로 가상 경험을 많이 만들수록 항상 좋은가? 틀린 모델이 만드는 경험은 어떻게 학습을 왜곡할까?
+
+### 5.2 World Models — V, M, C로 분해하기
+
+**원문:** Ha & Schmidhuber, *World Models* (2018). [논문](https://arxiv.org/abs/1803.10122), [저자들의 인터랙티브 원문](https://worldmodels.github.io/)
+
+- **V(Vision):** VAE가 화면을 낮은 차원의 `z_t`로 압축한다.
+- **M(Memory):** MDN-RNN이 행동과 과거 기억으로 다음 latent의 확률분포를 예측한다.
+- **C(Controller):** 압축된 관측과 기억을 입력받는 작은 정책을 학습한다.
+- **핵심:** 큰 표현·예측 모델과 작은 제어기를 분리하며, 일부 실험에서는 생성된 꿈 환경 안에서 제어기를 학습해 실제 환경으로 옮긴다.
+- **한계·해석:** 단순한 환경에서의 가능성 증명이다. 이것만으로 복잡한 현실의 장기 물리 모델이 완성된 것은 아니다.
+- **읽을 부분:** V/M/C 구조, `p(z_{t+1}|z_t,a_t,h_t)`, “Training Inside of the Dream”, temperature와 모델 악용 문제.
+
+**자기 설명:** 관측을 압축하는 V만 있고 미래를 예측하는 M이 없다면 무엇을 잃는가?
+
+### 5.3 PlaNet — latent에서 매번 계획하기
+
+**원문:** Hafner et al., *Learning Latent Dynamics for Planning from Pixels* (2018 / ICML 2019). [논문](https://arxiv.org/abs/1811.04551)
+
+- **문제:** 원본 픽셀에서 후보 미래를 많이 시뮬레이션하는 것은 비싸다.
+- **아이디어:** RSSM으로 잠재 동역학을 배우고, latent rollout과 CEM으로 행동열을 계획한다.
+- **핵심 기여:** deterministic memory와 stochastic state의 결합, 여러 단계 앞의 일관성을 학습하는 latent overshooting.
+- **행동 생성:** 정책을 미리 학습해 한 번 호출하는 대신, 현재 상태에서 후보 행동들을 온라인으로 평가한다.
+- **한계·해석:** 모델과 후보 탐색이 모두 좋아야 한다. 예측 길이가 늘면 오차와 계산 비용도 늘어난다.
+- **읽을 부분:** RSSM 그림 → 학습 목적 → planning 절차 → overshooting ablation.
+
+**Dreamer와 비교:** PlaNet은 **지금 검색해서 행동**하고, Dreamer는 **상상 속에서 배운 정책으로 행동**한다.
+
+### 5.4 Dreamer, DreamerV2, DreamerV3 — 상상 속 정책 학습의 성숙
+
+**원문:** [Dreamer / *Dream to Control* (2019)](https://arxiv.org/abs/1912.01603), [DreamerV2 / *Mastering Atari with Discrete World Models* (2020)](https://arxiv.org/abs/2010.02193), [DreamerV3 / *Mastering Diverse Domains through World Models* (2023)](https://arxiv.org/abs/2301.04104)
+
+| 버전 | 먼저 이해할 변화 | 깊게 볼 구현 |
+|---|---|---|
+| Dreamer | 압축된 상상 trajectory에서 actor–critic 학습 | 모델 학습과 behavior learning의 분리, 가치 bootstrap |
+| V2 | 이산 stochastic latent와 Atari 상상 학습 | categorical latent, straight-through gradient, KL balancing |
+| V3 | 폭넓은 작업에서 안정적인 공통 설정 | symlog, 분포형 예측, 손실·수익 스케일 조절, KL regularization |
+
+`symlog(x)=sign(x)·log(1+|x|)`는 큰 크기의 값을 압축하는 변환이다. V3는 작은 알고리즘 트릭 하나의 효과라기보다, 서로 다른 관측·보상 스케일에서 학습을 안정화하는 설계 묶음으로 읽는다.
+
+**특히 구별할 점:** V3의 Minecraft 결과는 실제 환경과 상호작용하며 처음부터 학습하는 설정이다. 뒤의 Dreamer 4가 다루는 오프라인 데이터 설정과 학습 예산·입력 데이터가 다르다.
+
+**읽을 질문:** 세계 모델을 개선하는 손실과 정책을 개선하는 손실은 같은가? posterior로 추정한 출발점 이후의 상상은 왜 prior를 사용해야 하는가?
+
+### 5.5 MuZero — 세계의 모든 세부를 예측할 필요는 없다
+
+**원문:** Schrittwieser et al., *Mastering Atari, Go, Chess and Shogi by Planning with a Learned Model* (2019). [논문](https://arxiv.org/abs/1911.08265)
+
+핵심 구성은 `h`(representation), `g`(dynamics), `f`(prediction)이다. 여기의 `h`는 논문의 함수 이름이며 이 노트의 이력 `h_t`와 다르다.
+
+~~~text
+과거 관측 → representation → latent
+latent + 행동 → dynamics → 다음 latent + 보상
+latent → prediction → 정책 prior + 가치
+이 구조로 MCTS 탐색
+~~~
+
+- **핵심:** 다음 화면 복원 없이 계획에 필요한 보상·정책·가치를 학습한다.
+- **의미:** 세계 모델을 평가하는 목적이 의사결정이라면, photorealism은 필수 조건이 아닐 수 있다.
+- **한계·해석:** latent가 사람이 해석하는 물리 상태와 일치한다고 보장하지 않으며, 실험 밖의 임의 목표와 개입에 대한 정확성도 별도 문제다.
+- **읽을 부분:** 모델의 세 함수, unroll 학습, MCTS, 실제 관측으로 보정하는 위치.
+
+### 5.6 TD-MPC2 — decoder-free 제어 모델의 확장
+
+**원문:** Hansen et al., *TD-MPC2: Scalable, Robust World Models for Continuous Control* (2023). [논문](https://arxiv.org/abs/2310.16828), [공식 프로젝트](https://www.tdmpc2.com/)
+
+- **아이디어:** 관측 reconstruction 대신 latent dynamics·보상·가치를 제어 목적에 맞게 학습하고, 짧은 trajectory optimization과 terminal value를 결합한다.
+- **중요성:** Dreamer 외에도 강력한 모델 기반 제어 계보가 있으며, decoder 없이도 세계 모델을 쓸 수 있음을 보여준다.
+- **확장:** 여러 작업·로봇·행동 공간을 다루는 큰 모델과 데이터의 효과를 연구한다.
+- **한계·해석:** 학습한 가치와 작업 조건에 기대는 만큼, 일반 영상 이해나 임의 목표에 대한 범용 시뮬레이터와 동일하게 보지 않는다.
+
+**비교 질문:** MuZero, TD-MPC2, JEPA는 모두 픽셀 복원 없이 동작할 수 있는데, 각각 무엇을 정답으로 삼아 latent를 학습하는가?
+
+### 5.7 IRIS와 DIAMOND — 세계 모델의 표현 방식이 행동을 바꾼다
+
+**IRIS:** Micheli et al., *Transformers are Sample-Efficient World Models* (2022). [논문](https://arxiv.org/abs/2209.00588)
+
+이미지를 discrete autoencoder의 토큰으로 표현하고, 자기회귀 Transformer로 미래를 모델링한 뒤 상상 속에서 정책을 학습한다. 중요한 연결은 **언어모델식 시퀀스 예측이 이미지·행동 전이에도 쓰일 수 있다**는 것이다. 토큰화가 작은 물체의 위치나 움직임 정보를 잃으면 제어에도 영향을 줄 수 있다.
+
+**DIAMOND:** Alonso et al., *Diffusion for World Modeling: Visual Details Matter in Atari* (2024). [논문](https://arxiv.org/abs/2405.12399)
+
+확산 세계 모델에서 생성한 미래를 사용해 RL을 수행한다. 작은 시각적 차이가 게임 결과를 바꾸는 환경에서는 영상 세부의 보존이 의사결정에도 중요하다는 관점을 제공한다.
+
+**같이 읽는 이유:** “픽셀은 낭비”와 “픽셀은 중요”를 보편적인 양자택일로 보지 않는다. 작업에 필요한 정보를 어떤 표현이 보존하는지 실험으로 판단해야 한다.
+
+### 5.8 Dreamer 4 — 큰 세계 모델 안에서 오프라인 RL
+
+**원문:** Hafner, Yan & Lillicrap, *Training Agents Inside of Scalable World Models* (2025-09). [논문](https://arxiv.org/abs/2509.24527), [구조와 학습 절차](https://arxiv.org/html/2509.24527v1)
+
+- **문제:** 복잡한 물체 상호작용을 장기간 예측하면서 상상 학습을 빠르게 수행하기 어렵다.
+- **구조:** causal tokenizer, Transformer dynamics, 적은 생성 단계로 추론하는 shortcut forcing, 정책·보상·가치 학습과 imagination RL.
+- **데이터:** 행동이 있는 자료와 행동이 없는 영상을 활용하는 방향을 다룬다.
+- **저자 보고:** 오프라인 데이터만 사용하는 Minecraft 설정에서 상상 속 RL을 통해 다이아몬드를 얻었다.
+- **해석:** 단순히 “V3보다 큰 RSSM”으로 읽으면 중요한 구조·학습 설정의 변화를 놓친다.
+- **한계:** 오프라인 데이터의 행동 범위를 벗어나는 rollout을 어떻게 신뢰할지는 여전히 중요한 문제다.
+
+**WAM과 연결:** 영상에서 배운 세계 지식을 행동에 연결한다는 관심은 공유하지만, **상상 속 보상 최적화로 정책을 개선하는 것**과 **시연에서 영상·행동을 공동 생성하도록 학습하는 것**은 서로 다른 절차다.
+
+---
+
+<a id="papers-foundation"></a>
+## 6. 필독 논문 II: 영상·표현 기반 세계 모델
+
+이 절에서는 사전학습 데이터가 환경별 상호작용에서 대규모 영상으로 확장된다. 항상 **사전학습에 행동이 있는지**, **제어 단계에서 행동과 어떻게 연결하는지**를 표시하면서 읽는다.
+
+### 6.1 LeCun의 구상과 V-JEPA — 예측할 표현을 학습하기
+
+**원문:** LeCun, *A Path Towards Autonomous Machine Intelligence* (2022). [position paper](https://openreview.net/forum?id=BZ5a1r-kVsf)  
+**구체적 모델:** Bardes et al., *Revisiting Feature Prediction for Learning Visual Representations from Video* (2024). [V-JEPA 논문](https://arxiv.org/abs/2404.08471)
+
+- **출발점:** 미래 영상에는 빛 반사, 나뭇잎, 배경 등 예측하기 어렵거나 작업과 무관한 정보가 많다.
+- **JEPA 관점:** 영상 전체를 복원하기보다, 보이지 않는 부분의 **표현**을 예측하도록 학습한다.
+- **V-JEPA:** 영상의 가려진 부분에 대한 feature prediction으로 시각 표현을 학습한다.
+- **핵심 구별:** action-free representation pretraining만으로 후보 로봇 행동의 결과를 예측하는 제어 모델이 완성된 것은 아니다.
+
+다음은 학습 구조를 설명하는 개념식이다.
+
+$$
+\mathcal L_{\rm pred}
+=
+\left\|
+\mathrm{Predictor}(E_\theta(\mathrm{context}),\mathrm{mask})
+-\mathrm{sg}(E_{\bar\theta}(\mathrm{target}))
+\right\|.
+$$
+
+`sg`는 stop-gradient이고, target encoder는 EMA 등으로 갱신할 수 있다. 표현 붕괴를 막는 세부 설계가 중요하므로, 이 한 줄만 구현하면 V-JEPA가 재현된다고 생각하지 않는다. LeCun의 2022 문서는 성능 비교 논문이 아닌 연구 방향 제안이다.
+
+### 6.2 V-JEPA 2 — 행동 없는 사전학습에서 행동 조건부 계획으로
+
+**원문:** Assran et al., *V-JEPA 2: Self-Supervised Video Models Enable Understanding, Prediction and Planning* (2025-06). [논문](https://arxiv.org/abs/2506.09985), [학습·계획 설명](https://arxiv.org/html/2506.09985v1)
+
+~~~text
+대규모 영상·이미지 → action-free V-JEPA 2 표현 사전학습
+로봇 관측 + 실제 행동 → action-conditioned V-JEPA 2-AC 후학습
+현재 표현 + 후보 행동 → 미래 표현 예측
+목표 이미지 표현과 거리 비교 → CEM / MPC → 실행
+~~~
+
+- **핵심:** 보기만 해서 배운 시각 지식을 비교적 적은 로봇 상호작용 자료로 제어와 연결한다.
+- **데이터 주의:** 약 62시간의 DROID 자료를 사용한 제어 단계는 작업별 성공 라벨·보상 없이 학습한다는 의미다. **행동 기록까지 없다는 뜻은 아니다.**
+- **실험 범위:** 새로운 환경의 Franka 로봇에서 이미지 목표에 따른 reaching·grasping·pick-and-place 계획을 평가한다.
+- **한계·해석:** 모든 언어 지시·장기 작업·로봇 형태에 대한 무제한 zero-shot 제어로 일반화하면 안 된다.
+
+**DreamZero와 가장 중요한 차이:** V-JEPA 2-AC는 주로 **후보 행동 → 미래 표현 → 목표 거리**로 계획하고, DreamZero는 **미래 영상과 행동을 공동 생성하는 정책**을 구성한다.
+
+### 6.3 V-JEPA 2.1 — 조밀한 공간·시간 표현
+
+**원문:** Mur-Labadia et al., *V-JEPA 2.1: Unlocking Dense Features in Video Self-Supervised Learning* (2026-03). [논문](https://arxiv.org/abs/2603.14482)
+
+visible·masked token 모두를 활용하는 dense predictive loss, 여러 중간 층의 self-supervision, 이미지·영상 통합 학습과 확장을 통해 공간적으로 조밀하고 시간적으로 일관된 표현을 만든다.
+
+**읽는 이유:** 행동은 “컵이 있다”는 전체 장면 의미만으로 결정되지 않는다. 손가락과 컵 가장자리의 상대 위치 같은 국소 정보가 필요하다. 이 논문은 전역 의미와 조밀한 표현을 함께 보는 연결 자료다.
+
+**주의:** encoder 표현 개선, action-conditioned predictor, 최종 제어 성공률을 각각 구분해서 평가한다.
+
+### 6.4 Genie — 행동 라벨 없이 상호작용 가능한 세계
+
+**원문:** Bruce et al., *Genie: Generative Interactive Environments* (2024). [논문](https://arxiv.org/abs/2402.15391)
+
+영상 tokenizer, latent action model, dynamics model을 구성해 행동 라벨이 없는 영상에서 상호작용 가능한 환경을 학습한다. 인접 프레임의 변화를 설명하는 latent action을 배워 생성 과정을 조절한다.
+
+**핵심 한계:** latent action의 “왼쪽으로 이동하는 변화”가 실제 로봇의 토크·관절 명령과 같지는 않다. 실제 로봇으로 옮기려면 latent action과 실행 가능한 제어를 연결해야 한다.
+
+**Genie 3:** 2025-08 공식 발표는 실시간 탐색 가능한 세계 생성의 발전을 보여준다. [공식 발표](https://deepmind.google/blog/genie-3-a-new-frontier-for-world-models/)
+
+여기서는 Genie 3를 논문과 동일한 증거 수준으로 취급하지 않는다. 상호작용 시연의 인상과, 장기 상태 보존·정밀 물리·에이전트 학습 효과의 정량 검증을 구별한다.
+
+### 6.5 Diffusion Forcing — 자기회귀와 확산의 결합
+
+**원문:** Chen et al., *Diffusion Forcing: Next-token Prediction Meets Full-Sequence Diffusion* (2024). [논문](https://arxiv.org/abs/2407.01392)
+
+시퀀스 토큰마다 독립적인 noise level을 적용해 학습한다. 과거를 조건으로 미래 토큰을 만들면서도, 여러 미래 시점에 대한 생성·guidance를 유연하게 조절한다.
+
+**왜 필요한가:** 세계 모델에서는 “과거는 확정된 관측, 가까운 미래는 덜 불확실, 먼 미래는 더 불확실” 같은 구조가 자연스럽다. 전체 시퀀스에 같은 잡음을 넣는 방식과 다른 조건화를 제공한다.
+
+**연결:** Dreamer 4의 shortcut forcing을 읽기 전 배경이다. **환경 시간의 causal order**와 **생성 시 noise를 제거하는 순서**는 서로 다른 축이라는 점을 기억한다.
+
+### 6.6 Cosmos와 Cosmos 3 — 세계 모델을 범용 기반으로 확장
+
+**Cosmos 원문:** *Cosmos World Foundation Model Platform for Physical AI* (2025-01). [논문](https://arxiv.org/abs/2501.03575)
+
+영상 데이터 정제, tokenizer, 사전학습 세계 모델과 후학습 사례를 포함하는 플랫폼을 제안한다. “하나의 로봇 작업을 풀기 위한 모델”에서 “다양한 물리 AI 응용을 위한 기반 모델”로 관심이 확장된다.
+
+**Cosmos 3 원문:** *Cosmos 3: Omnimodal World Models for Physical AI* (2026-06). [논문](https://arxiv.org/abs/2606.02800), [공식 프로젝트](https://research.nvidia.com/labs/cosmos-lab/cosmos3/)
+
+언어·이미지·영상·음성·행동을 mixture-of-transformers 구조로 함께 처리·생성하는 방향을 다룬다. 세계 이해, 생성, 시뮬레이션, 정책을 공통 기반으로 연결하려는 접근이다.
+
+**해석:** 연구 흐름은 “VLA냐 WAM이냐”라는 이름 경쟁을 넘어, **무엇을 조건으로 어떤 모달리티를 생성하며, 그 표현이 제어에 얼마나 유용한가**로 이동하고 있다. 영상 품질·로봇 성공률·동역학 정확도는 각각의 실험과 데이터 조건에서 확인해야 한다.
+
+---
+
+<a id="papers-wam"></a>
+## 7. 필독 논문 III: VLA에서 WAM으로
+
+### 7.1 먼저 VLA를 공정하게 이해하기
+
+**RT-2:** *Vision-Language-Action Models Transfer Web Knowledge to Robotic Control* (2023). [논문](https://arxiv.org/abs/2307.15818)
+
+웹에서 배운 시각·언어 지식을 로봇 제어에 연결하고, 행동을 토큰으로 표현해 시각·언어 작업과 함께 학습한다.
+
+**π0:** *A Vision-Language-Action Flow Model for General Robot Control* (2024). [논문](https://arxiv.org/abs/2410.24164)
+
+시각·언어 기반과 flow matching 행동 생성을 연결한다. 행동은 반드시 이산 언어 토큰으로만 출력하는 것이 아니다.
+
+**π0.5:** *A Vision-Language-Action Model with Open-World Generalization* (2025). [논문](https://arxiv.org/abs/2504.16054)
+
+여러 로봇, 웹 데이터, 의미적 subtask, 저수준 행동 등 이질적인 자료를 공동 학습해 새로운 실제 환경에 일반화하는 방향을 다룬다.
+
+**흔한 과장 피하기:** VLA를 “물리를 전혀 모르고 의미만 아는 모델”로 단정할 수 없다. 행동 데이터에서도 동역학에 관한 정보를 간접적으로 학습할 수 있고, 미래 예측을 결합한 VLA도 존재한다. 비교할 것은 **명시적인 미래 학습 목표, 기반 모델, 데이터, 추론 절차**다.
+
+또한 **Diffusion Policy**는 행동 분포를 확산으로 학습하지만, 그것만으로 미래 세계를 예측하는 WM이 되지는 않는다. [논문](https://arxiv.org/abs/2303.04137)
+
+### 7.2 UniPi — 미래 영상 계획에서 행동 추출
+
+**원문:** Du et al., *Learning Universal Policies via Text-Guided Video Generation* (2023). [논문](https://arxiv.org/abs/2302.00111)
+
+~~~text
+현재 영상 + 언어 목표 → 미래 영상 계획
+현재·미래 프레임 → inverse dynamics → 실제 행동
+~~~
+
+- **핵심:** 서로 다른 환경의 상태·행동 공간을 영상이라는 공통 표현으로 연결한다.
+- **WAM 계보에서의 의미:** “정책을 영상 생성으로 표현한다”는 아이디어는 2026년 이름이 널리 쓰이기 이전부터 존재했다.
+- **한계·해석:** 생성한 계획이 물리적으로 가능해야 하고, 역동역학이 그것을 실행할 수 있어야 한다.
+- **읽을 질문:** 미래 영상이 그럴듯해도 그립 접촉이나 힘이 틀리면 어떻게 되는가?
+
+### 7.3 UVA — 공동 학습과 빠른 실행을 양립시키기
+
+**원문:** Li et al., *Unified Video Action Model* (2025-02). [논문](https://arxiv.org/abs/2503.00200), [공식 프로젝트](https://unified-video-action-model.github.io/)
+
+영상과 행동의 joint latent representation을 학습하고, 두 개의 가벼운 diffusion head로 decoding을 분리한다. 추론 때 영상 생성을 건너뛰고 행동을 빠르게 생성할 수 있다. 입력의 일부를 가리는 학습으로 policy, 정동역학, 역동역학 등의 조건화를 지원한다.
+
+**중요한 교훈:** 미래 예측이 정책 학습에 유용하더라도 **실행 때 매번 모든 미래 영상을 렌더링해야 하는 것은 아니다.**
+
+**읽을 질문:** 행동 추론에서 생략할 수 있는 모듈은 무엇이며, 학습 때 영상 손실은 어떤 표현을 개선하는가?
+
+### 7.4 WorldVLA — 자기회귀 행동·세계 모델 통합
+
+**원문:** Cen et al., *WorldVLA: Towards Autoregressive Action World Model* (2025-06). [논문](https://arxiv.org/abs/2506.21539)
+
+하나의 자기회귀 프레임워크에서 이미지와 행동의 이해·생성을 통합한다. 세계 예측은 행동 생성을 돕고, 행동 정보는 미래 영상 예측을 돕는 공동 학습을 다룬다. 행동 chunk를 자기회귀적으로 생성할 때 앞선 행동 오차가 전파되는 문제에 attention mask 전략을 제안한다.
+
+**의미:** WAM을 특정한 video diffusion backbone만으로 정의하면 이 계보를 놓친다. 통합 학습은 자기회귀, diffusion, representation prediction 등 여러 방식으로 가능하다.
+
+### 7.5 Cosmos Policy — 행동·미래 관측·가치를 영상 latent 형식에 넣기
+
+**원문:** Kim et al., *Cosmos Policy: Fine-Tuning Video Models for Visuomotor Control and Planning* (2026-01). [논문](https://arxiv.org/abs/2601.16163), [공식 프로젝트](https://research.nvidia.com/labs/dir/cosmos-policy/)
+
+**설계의 핵심은 latent frame injection이다.** 사전학습 Cosmos-Predict2의 latent sequence에 proprioception, action chunk, 미래 관측, value를 호환되는 latent frame 형식으로 삽입해 후학습한다.
+
+~~~text
+현재 로봇 상태·여러 카메라·언어
+  → 사전학습 영상 모델의 latent sequence
+  → 행동 chunk / 미래 로봇 상태·이미지 / 미래 value 생성
+  → 직접 정책으로 실행하거나, 후보 결과·가치를 비교해 계획
+~~~
+
+**특히 읽을 구별:** 기본 정책은 action chunk 끝 시점의 미래 관측을 다루며, 모든 중간 프레임을 촘촘히 생성하는 미래 영상 rollout과는 다르다. policy rollout 자료를 추가로 활용한 계획 개선도, 초기 시연 후학습 단계와 나누어 본다. [방법 절](https://arxiv.org/html/2601.16163v1#S4)
+
+**비교 포인트:** 모델 크기만이 아니라, 어떤 modality를 latent에 넣었는지와 추론 때 policy·forward model·value를 어떤 조건화로 호출하는지 확인한다.
+
+### 7.6 DreamZero — 영상·행동 공동 생성과 실제 폐루프 제어
+
+**원문:** Ye et al., *World Action Models are Zero-shot Policies* (2026-02). [논문](https://arxiv.org/abs/2602.15922), [공식 프로젝트](https://dreamzero0.github.io/), [공식 코드](https://github.com/dreamzero0/dreamzero)
+
+**학습 구조:** 사전학습 Wan 계열의 14B 영상 diffusion backbone에 현재·과거 시각 정보, 언어, proprioception을 조건으로 넣고 미래 영상과 행동을 공동 예측한다. autoregressive chunk 구조와 flow matching을 사용한다. 개념적 분해는 “미래 영상 예측 × 역동역학”이지만 별도 두 모델을 순차 실행하는 구현과 구별한다. [모델 구조](https://arxiv.org/html/2602.15922v1#S3.SS1)
+
+**실행 구조:** 관측 피드백과 비동기 실행을 사용하고, 실제 관측으로 cache의 시각 문맥을 갱신한다. 생성된 미래만 계속 재입력하는 오픈루프와 다르다. 영상·행동 생성 schedule 조정, caching, 병렬화 등 속도 설계를 함께 읽는다. [공식 프로젝트](https://dreamzero0.github.io/)
+
+**성과를 읽는 법:** 저자들은 새 작업·환경 일반화와 영상만으로 얻는 cross-embodiment transfer를 보고한다. 그러나 “zero-shot”은 모든 선행학습·로봇 데이터가 없다는 뜻이 아니다. 새 task, 새 environment, 새 embodiment를 따로 확인하고, 새로운 몸체로의 few-shot adaptation 결과도 구별한다. 실제 실행의 하드웨어·지연 조건은 [공식 코드의 배포 설명](https://github.com/dreamzero0/dreamzero)과 함께 읽는다.
+
+**논문을 읽으며 답할 질문:**
+
+1. 어떤 video prior를 가져오고, 어떤 robot data로 행동을 연결했는가?
+2. 시각 문맥과 행동 chunk의 시간 해상도는 어떻게 정렬하는가?
+3. 미래 영상 생성이 좋은 행동에 기여했다는 것을 어떤 ablation으로 확인하는가?
+4. 익숙하지 않은 동작과 새로운 물체·배경에 대한 일반화를 분리했는가?
+5. 실제 관측을 언제 반영하며 계산이 늦으면 어떤 행동을 실행하는가?
+
+### 7.7 네 접근을 한 화면에서 비교
+
+| 접근 | 핵심 흐름 | 미래의 표현 | 행동 선택 때 중요한 요소 |
+|---|---|---|---|
+| UniPi | 영상 계획 → 역동역학 | 미래 영상 | 영상 실현 가능성, IDM |
+| V-JEPA 2-AC | 후보 행동 → 미래 표현 → 목표 거리 | embedding | CEM/MPC, 목표 이미지 |
+| Cosmos Policy | 정책·전이·가치 공동 학습 | latent frame으로 표현한 미래 관측·상태 | 직접 정책 또는 후보와 가치 비교 |
+| DreamZero | 미래 영상·행동 공동 생성 | 영상 latent와 행동 | autoregressive 문맥, 관측 피드백, 빠른 생성 |
+
+표는 대표적인 사용법을 요약한다. 지원 가능한 모든 조건화나 파생 구현을 나열한 것은 아니다.
+
