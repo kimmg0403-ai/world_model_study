@@ -197,7 +197,7 @@ r_t=R(s_t,a_t).
 - $r_t$: $a_t$를 실행한 전이에 대응하는 보상.
 - $h_t=(o_0,a_0,\ldots,a_{t-1},o_t)$: 관측과 행동의 이력.
 - $b_t(s)=P(s_t=s\mid h_t)$: 가능한 실제 상태에 대한 믿음, 즉 belief.
-- $x_t$: 신경망이 학습한 압축 상태. 정확한 belief와 같다고 가정하지 않는다.
+- $x_t$: 관측과 행동 history로 **추론한 모델 내부의 잠재 상태**. 실제 환경의 $s_t$나 정확한 belief $b_t$와 같다고 가정하지 않는다.
 
 정지 화면 한 장으로는 컵이 왼쪽으로 움직이는지 오른쪽으로 움직이는지 알기 어렵다. **부분 관측 때문에 기억과 이력 조건화가 필요하다.**
 
@@ -209,6 +209,49 @@ p_\theta(x_{t+1},r_t,c_t\mid x_t,a_t),
 ```
 
 $c_t$는 전이 이후 에피소드가 계속될지 나타내는 continuation 변수다. 관측 decoder, 보상 head, continuation head는 모든 WM에 필수인 것은 아니다.
+
+
+#### 보충: 실제 상태 $s_t$, 관측 $o_t$, 모델 내부 상태 $x_t$는 어떻게 다른가?
+
+이 문서에서는 아래의 표기를 일관되게 사용한다. **원논문마다 같은 기호를 다르게 쓸 수 있다는 점**은 별도로 표시한다.
+
+| 기호 | 의미 | 얻는 방법 | 공이 움직이는 상황의 예 |
+|---|---|---|---|
+| $s_t$ | 실제 환경 상태 (true environment state) | 현실에 존재하지만 전부 직접 관측할 수는 없음 | 위치, 속도, 질량, 접촉 상태 |
+| $o_t$ | 실제 관측 (observation) | 카메라·센서가 측정 | RGB frame, 로봇 관절 센서값 |
+| $x_t$ | 모델의 학습된 잠재 상태 (learned model state) | 관측 및 과거 행동 이력으로부터 모델이 추론 | 현재 공의 운동 방향에 대한 내부 feature |
+| $b_t(s)$ | Belief state | 실제 상태에 관한 조건부 확률분포 | 가능한 물리 상태에 대한 불확실성 |
+
+실제 환경에서의 관측 생성은
+
+```math
+s_{t+1}\sim P(s_{t+1}\mid s_t,a_t),\qquad
+o_t\sim O(o_t\mid s_t).
+```
+
+이다. 반면 모델이 내부 표현을 형성하는 *추론 방향*은 개념적으로
+
+```math
+x_t\sim q_\phi(x_t\mid o_{\le t},a_{<t})
+\quad\text{또는}\quad
+x_t=E_\phi(o_{\le t},a_{<t}).
+```
+
+이다. 첫 식은 확률적 추론, 둘째 식은 결정론적 인코딩의 추상적인 예시다. 모든 모델이 이 두 식 중 하나를 그대로 구현하는 것은 아니다.
+
+따라서 $s_t\to o_t\to x_t$는 **현실 → 관측 → 모델의 추론**이라는 설명용 화살표다. $o_t$가 latent $x_t$를 직접 측정한 것이 아니다. 학습된 world model의 *generative/decoder 방향*은 내부 상태로부터 관측을 예측하는 반대 방향이기도 하다.
+
+```math
+p_\theta(o_t\mid x_t),\qquad
+p_\theta(x_{t+1}\mid x_t,a_t).
+```
+
+**예시:** 현재 사진에 공이 같은 위치에 있는 두 경우를 상상하자. 하나는 오른쪽으로 이동 중이고 다른 하나는 왼쪽으로 이동 중이다. 한 장의 $o_t$만으로는 구분하기 어렵지만 과거 frame을 보면 모델의 $x_t$는 운동 방향을 다르게 추정할 수 있다. 반대로 영상으로부터 알기 어려운 공의 질량은 $x_t$에 담기지 않을 수도 있다.
+
+**핵심:** $s_t$는 환경의 실제 상태, $o_t$는 측정값, $x_t$는 모델의 학습된 내부 표현이다. $x_t$는 $s_t$의 완전하고 일대일인 복제본이 아니다. 단일 frame을 압축한 VAE latent와 이력을 통합한 RSSM state도 서로 구별해야 한다.
+
+**원문과 이 노트의 표기 차이:** PlaNet과 Dreamer는 **RSSM의 모델 내부 상태**를 $s_t$, recurrent memory를 $h_t$로 표기하기도 한다. 이 문서에서는 실제 환경 상태와 혼동하지 않도록 RSSM의 내부 상태를 $x_t=(u_t,z_t)$로 통일한다. 따라서 원문 수식을 읽을 때에는 이 표기를 대응시켜야 한다.
+
 
 ### 3.3 정책과 계획의 목적
 
@@ -270,7 +313,7 @@ p_\theta(O^+\mid A,h_t,g).
 
 ### 4.1 RSSM: 기억과 불확실성을 함께 담기
 
-PlaNet과 초기 Dreamer 계열을 읽는 열쇠는 **Recurrent State-Space Model(RSSM)**이다. 단순화하면:
+PlaNet과 초기 Dreamer 계열을 읽는 열쇠는 **Recurrent State-Space Model(RSSM)**이다. 여기서는 실제 환경 상태 $s_t$와 혼동하지 않도록 RSSM 내부 상태를 $x_t=(u_t,z_t)$로 표기한다. 단순화하면:
 
 ```math
 u_t=f_\theta(u_{t-1},z_{t-1},a_{t-1}),
@@ -501,15 +544,15 @@ World Models가 '학습된 환경에서 controller를 훈련할 수 있다'를 �
 
 #### 방법론 ①: Recurrent State-Space Model (RSSM)
 
-전체 잠재 상태를 $s_t=(h_t,z_t)$라고 정의한다. $h_t$는 결정론적 기억, $z_t$는 확률적 변수다.
+이 노트에서는 RSSM 전체 상태를 $x_t=(u_t,z_t)$라고 정의한다. $u_t$는 결정론적 기억, $z_t$는 확률적 변수다. **PlaNet 원문은 이 내부 상태를 $s_t$, recurrent memory를 $h_t$로 쓰지만, 여기에서는 실제 환경 상태 $s_t$와의 혼동을 피하려고 기호를 변경했다.**
 
 ```math
 \begin{aligned}
-h_t&=f_\theta(h_{t-1},z_{t-1},a_{t-1}),\\
-p_\theta(z_t\mid h_t)&:\text{ dynamics prior},\\
-q_\phi(z_t\mid h_t,o_t)&:\text{ observation posterior},\\
-p_\theta(o_t\mid h_t,z_t)&:\text{ observation decoder},\\
-p_\theta(r_t\mid h_t,z_t)&:\text{ reward predictor}.
+u_t&=f_\theta(u_{t-1},z_{t-1},a_{t-1}),\\
+p_\theta(z_t\mid u_t)&:\text{ dynamics prior},\\
+q_\phi(z_t\mid u_t,o_t)&:\text{ observation posterior},\\
+p_\theta(o_t\mid u_t,z_t)&:\text{ observation decoder},\\
+p_\theta(r_t\mid u_t,z_t)&:\text{ reward predictor}.
 \end{aligned}
 ```
 
@@ -517,7 +560,7 @@ p_\theta(r_t\mid h_t,z_t)&:\text{ reward predictor}.
 
 - 오직 deterministic RNN이면 같은 상태·행동에서 다중 가능한 미래를 확률분포로 표현하기 어렵다.
 - 오직 stochastic state만 쓸 경우 긴 이력의 안정적인 정보 전달이 어려울 수 있다.
-- 따라서 $h_t$가 과거의 정보를 전달하고, $z_t$가 미래의 확률적 불확실성을 표현한다. 단, 개별 차원의 의미가 해석 가능하게 감독되는 것은 아니다.
+- 따라서 $u_t$가 과거의 정보를 전달하고, $z_t$가 미래의 확률적 불확실성을 표현한다. 단, 개별 차원의 의미가 해석 가능하게 감독되는 것은 아니다.
 
 여기서 **posterior는 실제 관측을 본 후의 추론**, **prior는 아직 미래 관측을 볼 수 없을 때의 예측**이라는 차이를 반드시 기억하자.
 
@@ -530,14 +573,14 @@ Observation/reward의 negative log-likelihood와 one-step prior/posterior KL로 
 =
 \sum_t \mathbb E_q
 \left[
--\log p_\theta(o_t\mid s_t)
--\log p_\theta(r_t\mid s_t)
+-\log p_\theta(o_t\mid x_t)
+-\log p_\theta(r_t\mid x_t)
 \right]
 +\beta\sum_t
 \mathbb E_q
 D_{\rm KL}\!\left(
-q_\phi(z_t\mid h_t,o_t)\Vert
-p_\theta(z_t\mid h_t)\right).
+q_\phi(z_t\mid u_t,o_t)\Vert
+p_\theta(z_t\mid u_t)\right).
 ```
 
 학습에서는 관측으로 posterior 상태를 추정하지만, 미래 rollout 동안에는 새로운 관측이 없으므로 prior로 샘플링한다.
@@ -552,9 +595,9 @@ One-step loss를 작게 만들어도 여러 번 rollout하면 예측 오차가 �
 \sum_{t,d}
 \mathbb E\,
 D_{\rm KL}\!\left(
-q_\phi(z_t\mid h_t,o_t)
+q_\phi(z_t\mid u_t,o_t)
 \Vert
-p_\theta^{(d)}(z_t\mid s_{t-d},a_{t-d:t-1})
+p_\theta^{(d)}(z_t\mid x_{t-d},a_{t-d:t-1})
 \right).
 ```
 
@@ -605,20 +648,20 @@ World model의 미래는 **영상 decoder 없이** latent와 reward head만으�
 
 **문제의식:** PlaNet은 매 단계마다 후보 action sequence를 대량으로 최적화해야 한다. 이미 differentiable한 world model이 있다면 **그 안에서 미래를 상상해 actor와 critic을 학습**하고, 실제 행동 시에는 policy만 한 번 호출하면 되지 않을까?
 
-**World model:** PlaNet의 RSSM을 사용한다. 실제 데이터를 담은 replay buffer에서 posterior state를 얻고, 그 지점 이후에는 learned dynamics prior로 imagined trajectory를 생성한다.
+**World model:** PlaNet의 RSSM을 사용한다. 실제 데이터를 담은 replay buffer에서 posterior state를 얻고, 그 지점 이후에는 learned dynamics prior로 imagined trajectory를 생성한다. 여기의 $x_t$는 실제 환경의 $s_t$가 아니라 모델 내부의 RSSM 상태다.
 
 ```math
-a_\tau\sim\pi_\psi(a_\tau\mid s_\tau),\quad
-s_{\tau+1}\sim p_\theta(s_{\tau+1}\mid s_\tau,a_\tau),\quad
-\hat r_\tau\sim p_\theta(r_\tau\mid s_\tau).
+a_\tau\sim\pi_\psi(a_\tau\mid x_\tau),\quad
+x_{\tau+1}\sim p_\theta(x_{\tau+1}\mid x_\tau,a_\tau),\quad
+\hat r_\tau\sim p_\theta(r_\tau\mid x_\tau).
 ```
 
 **Actor와 Critic:**
 
 ```math
-\pi_\psi(a_\tau\mid s_\tau),\qquad
-V_\xi(s_\tau)\approx
-\mathbb E\left[\sum_{k=0}^{\infty}\gamma^k r_{\tau+k}\mid s_\tau\right].
+\pi_\psi(a_\tau\mid x_\tau),\qquad
+V_\xi(x_\tau)\approx
+\mathbb E\left[\sum_{k=0}^{\infty}\gamma^k r_{\tau+k}\mid x_\tau\right].
 ```
 
 짧게만 imagine하면 먼 미래의 보상을 놓칠 수 있으므로, 마지막 state의 value로 bootstrap한다. 길이 $n$의 return은
@@ -626,7 +669,7 @@ V_\xi(s_\tau)\approx
 ```math
 G_t^{(n)}
 =\sum_{k=0}^{n-1}\gamma^k\hat r_{t+k}
-+\gamma^n V_\xi(s_{t+n})
++\gamma^n V_\xi(x_{t+n})
 ```
 
 이고 길이 $H$의 imagination에서 $\lambda$-return은
@@ -644,17 +687,17 @@ G_t^\lambda
 간단히 deterministic reparameterized dynamics를 쓰면
 
 ```math
-s_{t+1}=f_\theta(s_t,a_t),\qquad
-a_t=g_\psi(s_t,\epsilon_t)
+x_{t+1}=f_\theta(x_t,a_t),\qquad
+a_t=g_\psi(x_t,\epsilon_t)
 ```
 
 이므로
 
 ```math
-\frac{\partial s_{t+1}}{\partial\psi}
+\frac{\partial x_{t+1}}{\partial\psi}
 =
-\frac{\partial f_\theta}{\partial s_t}
-\frac{\partial s_t}{\partial\psi}
+\frac{\partial f_\theta}{\partial x_t}
+\frac{\partial x_t}{\partial\psi}
 +
 \frac{\partial f_\theta}{\partial a_t}
 \frac{\partial g_\psi}{\partial\psi}.
@@ -666,7 +709,7 @@ Critic은 stop-gradient된 $\lambda$-return을 regression target으로 학습한
 
 ```math
 \mathcal L_V=
-\mathbb E\left[(V_\xi(s_t)-\operatorname{sg}(G_t^\lambda))^2\right].
+\mathbb E\left[(V_\xi(x_t)-\operatorname{sg}(G_t^\lambda))^2\right].
 ```
 
 **해결:** 온라인 CEM을 매번 반복하는 대신 상상 속에서 정책과 가치함수를 훈련하고 실제 실행 시 actor를 호출할 수 있게 했다. 다수의 visual continuous-control task에서 sample efficiency와 수행 성능의 개선을 보고했다.
@@ -738,10 +781,10 @@ DreamerV3에서 중요한 차이는 **original Dreamer와 달리 actor 학습에
 \mathcal L_\pi
 =-
 \mathbb E\left[
-\frac{\operatorname{sg}(G_t^\lambda-V_\xi(s_t))}
+\frac{\operatorname{sg}(G_t^\lambda-V_\xi(x_t))}
 {\max(1,S)}
-\log\pi_\psi(a_t\mid s_t)
-+\eta\mathcal H(\pi_\psi(\cdot\mid s_t))
+\log\pi_\psi(a_t\mid x_t)
++\eta\mathcal H(\pi_\psi(\cdot\mid x_t))
 \right].
 ```
 
@@ -1094,6 +1137,9 @@ J_{\hat P}(\pi)=\mathbb E_{\hat P,\pi}\sum_{t\ge0}\gamma^t r_t
 <a id="faq"></a>
 ## 11. 자주 헷갈리는 질문과 이해도 점검
 
+**Q0. $s_t$, $o_t$, $x_t$는 어떻게 구분하는가?**  
+$s_t$는 실제 환경 상태, $o_t$는 실제 센서 관측, $x_t$는 관측과 행동 이력으로부터 추론한 모델 내부의 잠재 상태다. $x_t$가 $s_t$와 같다는 보장은 없다. 상세한 표·수식·예시는 [3.2절](#math)에 정리했다.
+
 **Q1. 미래 영상을 잘 만들면 바로 world model인가?**  
 넓은 영상 생성 문맥에서는 그렇게 부를 수도 있다. 그러나 의사결정용 world model은 대개 **행동에 대한 반응**을 다루므로 action controllability를 따로 검증해야 한다.
 
@@ -1117,10 +1163,12 @@ WAM은 세계 예측과 실행 가능한 행동 선택의 연결을 핵심으로
 
 | 용어 | 이 노트에서의 의미 |
 |---|---|
-| State $s_t$ | 세계의 실제 또는 모델 내부 상태; 논문마다 의미가 다름 |
-| Observation $o_t$ | 카메라/센서로 관측한 정보 |
-| Belief $b_t$ | 관측 history를 반영한 숨은 상태의 확률분포 |
-| Latent state $z_t$ | 관측·동역학을 위한 신경망의 확률적 압축 변수 |
+| True state $s_t$ | 이 문서에서 실제 환경의 상태에 예약한 표기; 논문에 따라 내부 상태에 쓰기도 함 |
+| Observation $o_t$ | 실제 카메라/센서에서 측정한 관측 |
+| Model state $x_t$ | 관측·행동 이력으로부터 모델이 추론한 학습된 잠재 상태 |
+| Belief $b_t$ | 실제 상태에 대한 조건부 확률분포 |
+| Stochastic latent $z_t$ | RSSM 내부 상태 $x_t=(u_t,z_t)$에서 확률적인 변수 |
+| Recurrent state $u_t$ | RSSM 내부의 결정론적 memory (원문에서 $h_t$를 사용하기도 함) |
 | RSSM | Recurrent State-Space Model: 결정론적 기억 + 확률적 latent |
 | Prior / Posterior | 미래 관측 없이 예측 / 관측을 반영한 상태 추론 |
 | World model | 세계 전이·관측·보상 등의 예측 모델 |
@@ -1139,7 +1187,7 @@ WAM은 세계 예측과 실행 가능한 행동 선택의 연결을 핵심으로
 <a id="notebook"></a>
 ## 13. 후속 질문·수정 기록
 
-이 문서는 **학습 중 계속 확장하는 노트**다. 이해가 잘 안 되는 부분을 질문하면 아래 형태로 보완한다.
+이 문서는 **학습 중 계속 확장하는 노트**다. 앞으로 **용어·표기·정의·수식의 의미를 분명히 하기 위한 사용자의 질문**은 대화에서 설명한 다음 문서의 해당 본문·FAQ·용어집에 반영하고, 변경 기록에도 남기는 것을 기본 원칙으로 한다.
 
 ### 13.1 설명 보강 요청 템플릿
 
@@ -1165,6 +1213,7 @@ WAM은 세계 예측과 실행 가능한 행동 선택의 연결을 핵심으로
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-10-13 | 실제 상태 $s_t$, 관측 $o_t$, 모델 내부 상태 $x_t$의 차이 명확화. RSSM 관련 PlaNet·Dreamer 수식의 notation 통일 및 FAQ·용어집·질문 반영 원칙 추가 |
 | 2026-10-13 | 개요에 World Models / PlaNet / Dreamer / DreamerV3 상세 해설 통합; 목차 후반부 학습·질문 섹션 추가 |
 
 <a id="references"></a>
