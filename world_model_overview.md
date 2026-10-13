@@ -335,6 +335,60 @@ q_\phi(z_t\mid u_t,o_t),
 - **Prior** $p$: 현재 실제 관측 없이 미래를 예측할 때 사용.
 - **Posterior** $q$: 실제 관측을 보고 상태를 추정할 때 사용.
 
+#### 보충: Prior $p_\theta$, posterior $q_\phi$와 deterministic/stochastic의 정확한 의미
+
+**우선 두 분포의 역할을 구분하자.**
+
+- **Dynamics prior $p_\theta(z_t\mid u_t)$:** 새로운 센서 관측 $o_t$를 보기 전, 과거 history가 요약된 $u_t$만으로 *현재 latent가 어떤 값을 가질지 예측하는* 분포다.
+- **Inference / approximate posterior $q_\phi(z_t\mid u_t,o_t)$:** $u_t$와 새로 들어온 실제 관측 $o_t$를 함께 사용해 *현재 latent의 상태를 추론하는* 분포다.
+- 아래의 $\theta$와 $\phi$는 각각 네트워크 파라미터 집합의 표기다. 구현에서는 encoder, transition, decoder 등에서 파라미터 일부를 공유할 수 있고 이름의 분리가 학습 단계의 완전한 독립성을 뜻하지는 않는다.
+
+Generative model에 관측 분포 $p_\theta(o_t\mid u_t,z_t)$가 있으면, 이상적인 Bayes posterior는
+
+```math
+p_\theta(z_t\mid u_t,o_t)
+\propto p_\theta(o_t\mid u_t,z_t)\,
+p_\theta(z_t\mid u_t)
+```
+
+이다. 실제로 이 posterior를 계산하기 어려우므로 학습된 inference network $q_\phi$로 **근사**한다. 따라서 $q_\phi$를 '실제 상태를 100% 정확히 아는 모델'로 해석해서는 안 된다.
+
+**중요: deterministic은 '확실한 정보', stochastic은 '무작위 잡음만'이라는 구분이 아니다.**
+
+1. $u_t=f_\theta(u_{t-1},z_{t-1},a_{t-1})$가 deterministic이라는 뜻은 **함수의 입력을 고정했을 때 출력이 고정된다**는 것이다. 하지만 그 입력 중 $z_{t-1}$이 이전에 sampling한 값이면, 미래 rollout마다 $u_t$도 서로 달라질 수 있다. $u_t$가 실제 세계에 대해 항상 정확하다는 의미는 아니다.
+2. $z_t$가 stochastic이라는 뜻은 **조건부 분포에서 sampling할 수 있다**는 뜻이다. $u_t$와 새 관측 $o_t$가 정보를 제공하므로, $z_t$는 전혀 예측 불가능한 '순수 난수'가 아니다. 분포가 매우 집중되어 있으면 조건이 주어졌을 때 거의 결정론적인 값을 가질 수도 있다.
+3. 따라서 $u_t$에는 오차나 불확실성을 반영한 표현이 들어갈 수 있고, $z_t$에는 규칙적으로 예측되는 정보도 들어갈 수 있다. **두 부분이 의미상 '정확한 물리량 vs 랜덤 물리량'으로 자동 분해된다는 보장은 없다.**
+
+Gaussian stochastic latent의 직관적인 예시는
+
+```math
+z_t=\mu_\theta(u_t)+\sigma_\theta(u_t)\odot\epsilon_t,
+\qquad \epsilon_t\sim\mathcal N(0,I)
+```
+
+이다. $\epsilon_t$는 난수지만 $\mu_\theta$와 $\sigma_\theta$는 $u_t$에 의해 결정된다. 관측이 주어진 posterior에서는 이 평균과 표준편차가 $u_t,o_t$의 함수가 된다. 실제 Dreamer 버전에 따라 Gaussian 대신 categorical latent를 사용하기도 하므로, 이 식은 *모든 버전의 구현 수식이 아닌 개념적 예시*다.
+
+**실제 관측을 사용하는 한 timestep의 순서:**
+
+1. 이전 단계의 $u_{t-1},z_{t-1}$와 행동 $a_{t-1}$로 $u_t$를 **결정론적으로 계산**한다.
+2. $p_\theta(z_t\mid u_t)$에서 새 관측 없이 가능한 상태들을 **예측**한다.
+3. 카메라에서 $o_t$를 관측하면 $q_\phi(z_t\mid u_t,o_t)$로 latent를 **보정해 추론**한다.
+4. 새 관측에 의해 추론한 $z_t$를 사용해 현재의 $x_t=(u_t,z_t)$를 구성하고, 이후 단계의 recurrent memory를 갱신한다.
+5. 반대로 **imagination rollout**에서는 새로운 $o_t$가 없으므로 posterior를 호출하지 않고 prior에서 $z_t$를 생성한다.
+
+공이 일정 속도로 움직이는 예에서 $u_t$는 지금까지의 운동 이력을 전달하고, prior는 다음 위치·속도에 대한 예측을 표현할 수 있다. 충돌로 운동이 바뀐 장면을 새로 관측하면 posterior는 이 변화에 맞게 표현을 갱신한다. 이는 이해를 위한 예시이지 내부 차원이 특정 물리량과 일대일 대응한다는 뜻은 아니다.
+
+**왜 prior와 posterior를 가깝게 학습할까?** 관측을 보고 계산한 posterior로만 reconstruction을 잘하더라도, 미래에는 실제 관측이 없어 prior로 여러 단계를 rollout해야 한다. 따라서 RSSM의 KL 항
+
+```math
+D_{\mathrm{KL}}\!\left(
+q_\phi(z_t\mid u_t,o_t)\,\Vert\,
+p_\theta(z_t\mid u_t)
+\right)
+```
+
+으로 학습 중 두 분포를 연결한다. 단, reconstruction과 지나치게 강한 KL의 균형이 필요하며, '둘을 무조건 동일하게 만든다'는 뜻은 아니다. [PlaNet](https://arxiv.org/abs/1811.04551) · [Dreamer](https://arxiv.org/abs/1912.01603)
+
 훈련 때 관측을 본 posterior만 잘 맞고 prior가 나쁘면, 관측 없는 상상 rollout은 금방 무너진다. 따라서 양쪽을 연결해야 한다.
 
 다음은 관측·보상 예측과 latent regularization을 묶은 **개념적 손실**이다.
@@ -1151,7 +1205,10 @@ $g$는 goal을 나타내는 조건으로, 자연어 지시·목표 이미지·�
 넓은 영상 생성 문맥에서는 그렇게 부를 수도 있다. 그러나 의사결정용 world model은 대개 **행동에 대한 반응**을 다루므로 action controllability를 따로 검증해야 한다.
 
 **Q2. RSSM의 prior와 posterior는 왜 둘 다 필요한가?**  
-Posterior는 현재 실제 관측으로 상태를 추정한다. 미래 rollout에는 실제 관측이 없으므로 prior를 사용한다. 두 분포를 연결하는 학습이 미래 예측에 중요하다.
+Prior $p_\theta(z_t\mid u_t)$는 아직 $o_t$를 보지 않고 latent를 예측한다. Approximate posterior $q_\phi(z_t\mid u_t,o_t)$는 실제 관측을 반영한 현재 latent의 추론 분포다. 미래 imagination에는 새 관측이 없으므로 prior를 사용하며, KL 학습으로 양쪽을 연결한다. [4.1절](#mechanisms) 참고.
+
+**Q2-1. $u_t$가 확정적 정보이고 $z_t$가 100% 무작위 정보인가?**  
+아니다. Deterministic은 **입력이 주어졌을 때 함수 출력이 고정된다**는 뜻이고, stochastic은 **조건부 분포에서 값을 sampling한다**는 뜻이다. $u_t$에도 과거 sampling에서 비롯된 불확실성이 전파될 수 있고, $z_t$도 주어진 $u_t,o_t$로 상당 부분 예측 가능하다. 둘이 정확한 물리량과 무작위 잡음으로 의미상 분리된다는 보장은 없다.
 
 **Q3. Dreamer에서는 왜 매번 CEM을 수행하지 않는가?**  
 World model의 imagined trajectory에서 actor를 미리 학습했기 때문이다. 실행 시에는 policy network가 행동을 제안한다.
@@ -1178,7 +1235,8 @@ WAM은 세계 예측과 실행 가능한 행동 선택의 연결을 핵심으로
 | Stochastic latent $z_t$ | RSSM 내부 상태 $x_t=(u_t,z_t)$에서 확률적인 변수 |
 | Recurrent state $u_t$ | RSSM 내부의 결정론적 memory (원문에서 $h_t$를 사용하기도 함) |
 | RSSM | Recurrent State-Space Model: 결정론적 기억 + 확률적 latent |
-| Prior / Posterior | 미래 관측 없이 예측 / 관측을 반영한 상태 추론 |
+| Prior $p_\theta(z_t\mid u_t)$ / approximate posterior $q_\phi(z_t\mid u_t,o_t)$ | 각각 현재 관측을 보기 전의 latent 예측 분포 / 현재 관측을 반영한 latent 추론 분포 |
+| Deterministic / stochastic | 조건부 입력을 고정하면 출력이 정해지는 계산 / 조건부 분포로 표현하고 sampling 가능한 변수; 확실성 vs 순수 난수의 구분이 아님 |
 | World model | 세계 전이·관측·보상 등의 예측 모델 |
 | MPC | 일정 horizon 계획 → 일부 실행 → 새 관측으로 재계획 |
 | CEM | 높은 점수의 후보들로 sampling distribution을 반복 갱신하는 최적화 |
@@ -1221,6 +1279,7 @@ WAM은 세계 예측과 실행 가능한 행동 선택의 연결을 핵심으로
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-10-13 | 4.1절의 prior $p_\theta$ / approximate posterior $q_\phi$의 의미와 deterministic $u_t$ / stochastic $z_t$의 차이를 수식, 예시, 학습·rollout 순서로 보충; FAQ·용어집 업데이트 |
 | 2026-10-13 | 3.3~3.4절의 목표 $g$를 구체적으로 정의하고 reward와의 차이, 가능한 목표 조건의 형태, 선택적 입력이라는 점을 명시; FAQ 및 용어집 보강 |
 | 2026-10-13 | 실제 상태 $s_t$, 관측 $o_t$, 모델 내부 상태 $x_t$의 차이 명확화. RSSM 관련 PlaNet·Dreamer 수식의 notation 통일 및 FAQ·용어집·질문 반영 원칙 추가 |
 | 2026-10-13 | 개요에 World Models / PlaNet / Dreamer / DreamerV3 상세 해설 통합; 목차 후반부 학습·질문 섹션 추가 |
