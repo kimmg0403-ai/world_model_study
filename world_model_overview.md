@@ -185,11 +185,11 @@
 
 환경은 다음처럼 표현할 수 있다.
 
-$$
+```math
 s_{t+1}\sim P(s_{t+1}\mid s_t,a_t),\qquad
 o_t\sim O(o_t\mid s_t),\qquad
 r_t=R(s_t,a_t).
-$$
+```
 
 - `s_t`: 실제 환경 상태.
 - `o_t`: 센서로 얻은 관측.
@@ -203,32 +203,32 @@ $$
 
 학습한 세계 모델의 한 가지 일반형은 다음이다.
 
-$$
+```math
 p_\theta(x_{t+1},r_t,c_t\mid x_t,a_t),
 \qquad p_\theta(o_t\mid x_t).
-$$
+```
 
 `c_t`는 전이 이후 에피소드가 계속될지 나타내는 continuation 변수다. 관측 decoder, 보상 head, continuation head는 모든 WM에 필수인 것은 아니다.
 
 ### 3.3 정책과 계획의 목적
 
-$$
+```math
 \pi_\psi(a_t\mid h_t,g),\qquad
 J(\pi)=\mathbb E_{\pi,P}\left[\sum_{t=0}^{T-1}\gamma^t r_t\right].
-$$
+```
 
 `γ`는 미래 보상의 할인율이다. 세계 모델로 계산한 예상 수익 `\hat J`가 커도 실제 환경의 `J`가 크다는 보장은 없다. 이것이 model bias 문제의 출발점이다.
 
 보상이 없는 목표 조건부 계획도 가능하다.
 
-$$
+```math
 a^\star_{t:t+H-1}
 =\arg\min_{a_{t:t+H-1}}
 \mathbb E_{\hat P_\theta}\left[
 d(\hat x_{t+H},x_g)+
 \eta\sum_{k=0}^{H-1}C(a_{t+k})
 \right].
-$$
+```
 
 `x_g`는 목표 표현, `d`는 목표까지의 거리, `C`는 행동 비용이다. 이 수식은 **실제 세계가 아니라 모델이 예측한 세계 안에서 최적화**한다.
 
@@ -236,24 +236,24 @@ $$
 
 미래 관측열을 `O^+=o_{t+1:t+H}`, 행동열을 `A=a_{t:t+H-1}`라고 하면, 학습용 일반형은 다음과 같다.
 
-$$
+```math
 p_\theta(O^+,A\mid h_t,g).
-$$
+```
 
 두 가지 분해가 가능하다.
 
-$$
+```math
 p_\theta(O^+,A\mid h_t,g)
 =
 p_\theta(O^+\mid h_t,g)\,
 p_\theta(A\mid O^+,h_t,g)
-$$
+```
 
-$$
+```math
 =
 p_\theta(A\mid h_t,g)\,
 p_\theta(O^+\mid A,h_t,g).
-$$
+```
 
 - 첫 번째는 **미래를 그린 다음 그 미래를 실현할 행동을 구한다**는 관점이다.
 - 두 번째는 **행동을 제안하고 그 결과를 예측한다**는 관점이다.
@@ -261,7 +261,7 @@ $$
 - 두 분해가 수학적으로 가능하다고 해서 아키텍처·attention mask·학습 절차가 동등한 것은 아니다.
 - 확률적 공동 모델링만으로 `P(O^+\mid \mathrm{do}(A))`라는 인과적 개입 효과를 정확히 배웠다고 결론 낼 수 없다.
 
-**핵심 질문:** 이 모델은 그럴듯한 미래와 행동의 상관관계를 배우는가, 아니면 내가 선택한 새로운 행동의 결과까지 믿을 만하게 예측하는가? [DreamZero `3.1](https://arxiv.org/html/2602.15922v1#S3.SS1), [WAM 설계 비교 연구](https://arxiv.org/abs/2609.24048)
+**핵심 질문:** 이 모델은 그럴듯한 미래와 행동의 상관관계를 배우는가, 아니면 내가 선택한 새로운 행동의 결과까지 믿을 만하게 예측하는가? [DreamZero §3.1](https://arxiv.org/html/2602.15922v1#S3.SS1), [WAM 설계 비교 연구](https://arxiv.org/abs/2609.24048)
 
 ---
 
@@ -272,16 +272,16 @@ $$
 
 PlaNet과 초기 Dreamer 계열을 읽는 열쇠는 **Recurrent State-Space Model(RSSM)**이다. 단순화하면:
 
-$$
+```math
 u_t=f_\theta(u_{t-1},z_{t-1},a_{t-1}),
-$$
+```
 
-$$
+```math
 p_\theta(z_t\mid u_t)
 \quad\text{와}\quad
 q_\phi(z_t\mid u_t,o_t),
 \qquad x_t=(u_t,z_t).
-$$
+```
 
 - `u_t`: 과거를 누적하는 deterministic recurrent state.
 - `z_t`: 여러 가능한 상황을 나타내는 stochastic state.
@@ -292,7 +292,7 @@ $$
 
 다음은 관측·보상 예측과 latent regularization을 묶은 **개념적 손실**이다.
 
-$$
+```math
 \mathcal L_{\rm WM}
 =
 \sum_t\mathbb E_q[
@@ -300,7 +300,7 @@ $$
 -\log p_\theta(r_t\mid x_t,a_t)]
 +\beta D_{\rm KL}
 \left(q_\phi(z_t\mid u_t,o_t)\,\|\,p_\theta(z_t\mid u_t)\right).
-$$
+```
 
 continuation 예측 손실 등을 추가할 수 있다. 실제 논문은 보상 head의 입력·인덱스, KL balancing, free bits/free nats, stop-gradient, 이산 latent 등의 세부가 다르다. 위 수식을 그대로 모든 Dreamer 버전의 구현이라고 읽지 않는다. [PlaNet](https://arxiv.org/abs/1811.04551), [Dreamer](https://arxiv.org/abs/1912.01603)
 
@@ -336,12 +336,12 @@ MPC는 행동할 때 후보를 검색한다. Dreamer의 핵심은 **훈련 때 �
 
 짧은 상상을 장기 가치와 연결하는 예가 λ-return이다.
 
-$$
+```math
 G^\lambda_t=\hat r_t+
 \gamma\hat c_t\left[(1-\lambda)V(\hat x_{t+1})
 +\lambda G^\lambda_{t+1}\right],
 \qquad G^\lambda_{t+H}=V(\hat x_{t+H}).
-$$
+```
 
 이는 단순화한 재귀식이다. 상상 구간 끝의 critic이 그 뒤의 보상을 추정한다. 하지만 부정확한 critic을 붙이면 먼 미래가 정확해지는 것은 아니다. Dreamer 버전별 actor gradient 구성도 서로 다르므로, “모든 버전이 순수하게 동역학 미분만 쓴다”고 일반화하지 않는다. [Dreamer](https://arxiv.org/abs/1912.01603), [DreamerV3](https://arxiv.org/abs/2301.04104)
 
@@ -363,18 +363,18 @@ $$
 
 DDPM의 대표적인 학습 형태:
 
-$$
+```math
 x_\tau=\sqrt{\bar\alpha_\tau}x_0+
 \sqrt{1-\bar\alpha_\tau}\epsilon,\qquad
 \mathcal L_{\rm noise}
 =\mathbb E\|\epsilon-\epsilon_\theta(x_\tau,\tau,\mathrm{cond})\|^2.
-$$
+```
 
 여기서 `τ`는 **환경 시간 `t`와 다른 잡음 단계**다.
 
 Flow matching의 단순한 직선 경로 예:
 
-$$
+```math
 x_\tau=(1-\tau)\epsilon+\tau x_{\rm data},
 \qquad
 \mathcal L_{\rm FM}
@@ -382,7 +382,7 @@ x_\tau=(1-\tau)\epsilon+\tau x_{\rm data},
 v_\theta(x_\tau,\tau,\mathrm{cond})-
 (x_{\rm data}-\epsilon)
 \right\|^2.
-$$
+```
 
 추론은 잡음에서 출발해 `dx/dτ=v_\theta`를 적분하는 과정이다. 실제 방법은 경로, 가중치, parameterization, solver가 달라진다.
 
@@ -428,48 +428,48 @@ WAM에서는 `x`가 영상 latent와 행동을 함께 담을 수 있다. **둘�
 
 #### 방법론: V + M + C
 
-1. **Vision (V):** VAE를 이용해 RGB 이미지 \(o_t\)를 저차원 latent \(z_t\)로 압축한다.
-2. **Memory (M):** MDN-RNN은 \(z_t\), 행동 \(a_t\), 순환 은닉상태 \(h_t\)에서 다음 latent의 분포를 예측한다.
-3. **Controller (C):** \([z_t;h_t]\)로부터 행동을 만드는 간단한 정책의 파라미터를 최적화한다.
+1. **Vision (V):** VAE를 이용해 RGB 이미지 $o_t$를 저차원 latent $z_t$로 압축한다.
+2. **Memory (M):** MDN-RNN은 $z_t$, 행동 $a_t$, 순환 은닉상태 $h_t$에서 다음 latent의 분포를 예측한다.
+3. **Controller (C):** $[z_t;h_t]$로부터 행동을 만드는 간단한 정책의 파라미터를 최적화한다.
 
 Vision의 변분 목적은 대표적으로 다음과 같다.
 
-$$
+```math
 \mathcal L_V(o)
 =
 -\mathbb E_{q_\phi(z\mid o)}\log p_\theta(o\mid z)
 +
 D_{\rm KL}\big(q_\phi(z\mid o)\,\Vert\,p(z)\big).
-$$
+```
 
 Memory는 **Mixture Density Network**를 RNN에 결합한다. 하나의 Gaussian보다 다양한 가능한 미래를 표현하기 위해 mixture를 사용한다.
 
-$$
+```math
 p_\theta(z_{t+1}\mid z_t,a_t,h_t)
 =
 \sum_{k=1}^{K}
 \pi_{t,k}\,
 \mathcal N\!\left(z_{t+1};\mu_{t,k},\Sigma_{t,k}\right),
 \qquad \sum_k\pi_{t,k}=1.
-$$
+```
 
 RNN의 hidden state는 과거 관측·행동의 요약이고, mixture의 평균·분산·가중치는 네트워크가 출력한다. 컨트롤러는 예를 들어 다음과 같은 작은 선형 형태로 표현할 수 있다.
 
-$$
+```math
 a_t=W_c[z_t;h_t]+b_c.
-$$
+```
 
-여기서 핵심은 **정책을 학습하기 위해 미래 영상을 매번 decode해야 하는 것은 아니다**라는 점이다. Dynamics를 예측하도록 훈련한 \(h_t\)가 현재 행동 선택에 유용한 feature가 된다. 논문에서는 controller를 backpropagation 기반 policy gradient가 아니라 **CMA-ES**로 최적화하였다. V, M, C는 역할별로 별도 훈련한다.
+여기서 핵심은 **정책을 학습하기 위해 미래 영상을 매번 decode해야 하는 것은 아니다**라는 점이다. Dynamics를 예측하도록 훈련한 $h_t$가 현재 행동 선택에 유용한 feature가 된다. 논문에서는 controller를 backpropagation 기반 policy gradient가 아니라 **CMA-ES**로 최적화하였다. V, M, C는 역할별로 별도 훈련한다.
 
 #### 'Training Inside of the Dream' 실험
 
-훈련된 MDN-RNN에서 \(z_{t+1}\)을 sampling하면 현실 게임을 실행하지 않고도 가상의 trajectory를 생성할 수 있다.
+훈련된 MDN-RNN에서 $z_{t+1}$을 sampling하면 현실 게임을 실행하지 않고도 가상의 trajectory를 생성할 수 있다.
 
-$$
+```math
 (z_t,h_t)\xrightarrow{\text{controller}}a_t
 \xrightarrow{\text{MDN-RNN}}\hat z_{t+1}
 \xrightarrow{\text{controller}}a_{t+1}\longrightarrow\cdots
-$$
+```
 
 논문은 특히 VizDoom에서 이렇게 학습한 controller를 실제 환경으로 옮기는 실험을 했다. 단, 모델이 만든 '꿈'은 실제 환경의 정확한 복사본이 아니다. 제어기가 world model의 빈틈을 악용하는 **model exploitation**이 발생할 수 있다. MDN sampling의 temperature를 조절해 가상의 미래를 지나치게 결정론적이지 않게 만들고 controller의 견고성을 높이는 방법을 탐색했다.
 
@@ -481,7 +481,7 @@ $$
 
 **읽을 질문**
 - VAE는 이미지 reconstruction을 잘하도록 학습된다. 그 latent가 반드시 제어에 필요한 정보를 보존할까?
-- \(z_t\)와 \(h_t\)가 갖는 정보는 어떻게 다른가?
+- $z_t$와 $h_t$가 갖는 정보는 어떻게 다른가?
 - 모델을 악용하는 행동은 왜 실제 환경에서 실패할 수 있는가?
 - Controller를 현재의 Diffusion Policy나 VLA로 바꾸려면 무엇이 추가되어야 할까?
 
@@ -501,9 +501,9 @@ World Models가 '학습된 환경에서 controller를 훈련할 수 있다'를 �
 
 #### 방법론 ①: Recurrent State-Space Model (RSSM)
 
-전체 잠재 상태를 \(s_t=(h_t,z_t)\)라고 정의한다. \(h_t\)는 결정론적 기억, \(z_t\)는 확률적 변수다.
+전체 잠재 상태를 $s_t=(h_t,z_t)$라고 정의한다. $h_t$는 결정론적 기억, $z_t$는 확률적 변수다.
 
-$$
+```math
 \begin{aligned}
 h_t&=f_\theta(h_{t-1},z_{t-1},a_{t-1}),\\
 p_\theta(z_t\mid h_t)&:\text{ dynamics prior},\\
@@ -511,13 +511,13 @@ q_\phi(z_t\mid h_t,o_t)&:\text{ observation posterior},\\
 p_\theta(o_t\mid h_t,z_t)&:\text{ observation decoder},\\
 p_\theta(r_t\mid h_t,z_t)&:\text{ reward predictor}.
 \end{aligned}
-$$
+```
 
 **왜 deterministic + stochastic인가?**
 
 - 오직 deterministic RNN이면 같은 상태·행동에서 다중 가능한 미래를 확률분포로 표현하기 어렵다.
 - 오직 stochastic state만 쓸 경우 긴 이력의 안정적인 정보 전달이 어려울 수 있다.
-- 따라서 \(h_t\)가 과거의 정보를 전달하고, \(z_t\)가 미래의 확률적 불확실성을 표현한다. 단, 개별 차원의 의미가 해석 가능하게 감독되는 것은 아니다.
+- 따라서 $h_t$가 과거의 정보를 전달하고, $z_t$가 미래의 확률적 불확실성을 표현한다. 단, 개별 차원의 의미가 해석 가능하게 감독되는 것은 아니다.
 
 여기서 **posterior는 실제 관측을 본 후의 추론**, **prior는 아직 미래 관측을 볼 수 없을 때의 예측**이라는 차이를 반드시 기억하자.
 
@@ -525,7 +525,7 @@ $$
 
 Observation/reward의 negative log-likelihood와 one-step prior/posterior KL로 모델을 학습한다. RSSM을 압축하여 나타낸 개념식은
 
-$$
+```math
 \mathcal L_{\rm RSSM}
 =
 \sum_t \mathbb E_q
@@ -538,15 +538,15 @@ $$
 D_{\rm KL}\!\left(
 q_\phi(z_t\mid h_t,o_t)\Vert
 p_\theta(z_t\mid h_t)\right).
-$$
+```
 
 학습에서는 관측으로 posterior 상태를 추정하지만, 미래 rollout 동안에는 새로운 관측이 없으므로 prior로 샘플링한다.
 
 #### 방법론 ③: Latent Overshooting
 
-One-step loss를 작게 만들어도 여러 번 rollout하면 예측 오차가 누적될 수 있다. 그래서 **\(d\)-step latent prior를 실제 데이터를 반영한 posterior와 맞추는** auxiliary objective를 제안했다.
+One-step loss를 작게 만들어도 여러 번 rollout하면 예측 오차가 누적될 수 있다. 그래서 **$d$-step latent prior를 실제 데이터를 반영한 posterior와 맞추는** auxiliary objective를 제안했다.
 
-$$
+```math
 \mathcal L_{\rm over}
 \;\sim\;
 \sum_{t,d}
@@ -556,7 +556,7 @@ q_\phi(z_t\mid h_t,o_t)
 \Vert
 p_\theta^{(d)}(z_t\mid s_{t-d},a_{t-d:t-1})
 \right).
-$$
+```
 
 위 식은 목적을 설명하는 **개념적 표기**다. 정확한 논문 수식에는 중간 확률적 상태에 대한 적분·기댓값과 conditioning이 포함된다.
 
@@ -564,15 +564,15 @@ $$
 
 #### 방법론 ④: Cross-Entropy Method (CEM)와 MPC
 
-길이 \(H\)의 후보 행동열 \(A=(a_t,\ldots,a_{t+H-1})\)을 만들고 학습된 모델을 rollout하여 예상 누적 reward를 계산한다.
+길이 $H$의 후보 행동열 $A=(a_t,\ldots,a_{t+H-1})$을 만들고 학습된 모델을 rollout하여 예상 누적 reward를 계산한다.
 
-$$
+```math
 A^\star\approx\arg\max_A
 \mathbb E_{\hat p_\theta}
 \left[
 \sum_{k=0}^{H-1}\gamma^k\hat r_{t+k}
 \right].
-$$
+```
 
 1. Action-sequence Gaussian proposal을 초기화한다.
 2. 여러 행동열을 sampling하고 각각 RSSM에서 rollout한다.
@@ -607,50 +607,50 @@ World model의 미래는 **영상 decoder 없이** latent와 reward head만으�
 
 **World model:** PlaNet의 RSSM을 사용한다. 실제 데이터를 담은 replay buffer에서 posterior state를 얻고, 그 지점 이후에는 learned dynamics prior로 imagined trajectory를 생성한다.
 
-$$
+```math
 a_\tau\sim\pi_\psi(a_\tau\mid s_\tau),\quad
 s_{\tau+1}\sim p_\theta(s_{\tau+1}\mid s_\tau,a_\tau),\quad
 \hat r_\tau\sim p_\theta(r_\tau\mid s_\tau).
-$$
+```
 
 **Actor와 Critic:**
 
-$$
+```math
 \pi_\psi(a_\tau\mid s_\tau),\qquad
 V_\xi(s_\tau)\approx
 \mathbb E\left[\sum_{k=0}^{\infty}\gamma^k r_{\tau+k}\mid s_\tau\right].
-$$
+```
 
-짧게만 imagine하면 먼 미래의 보상을 놓칠 수 있으므로, 마지막 state의 value로 bootstrap한다. 길이 \(n\)의 return은
+짧게만 imagine하면 먼 미래의 보상을 놓칠 수 있으므로, 마지막 state의 value로 bootstrap한다. 길이 $n$의 return은
 
-$$
+```math
 G_t^{(n)}
 =\sum_{k=0}^{n-1}\gamma^k\hat r_{t+k}
 +\gamma^n V_\xi(s_{t+n})
-$$
+```
 
-이고 길이 \(H\)의 imagination에서 \(\lambda\)-return은
+이고 길이 $H$의 imagination에서 $\lambda$-return은
 
-$$
+```math
 G_t^\lambda
 =(1-\lambda)\sum_{n=1}^{H-1}
 \lambda^{n-1}G_t^{(n)}
 +\lambda^{H-1}G_t^{(H)}.
-$$
+```
 
-이 식은 PPO에서 공부하는 GAE/TD(\(\lambda\))와 밀접하다. 여러 bootstrap horizon의 bias–variance trade-off를 조절한다.
+이 식은 PPO에서 공부하는 GAE/TD($\lambda$)와 밀접하다. 여러 bootstrap horizon의 bias–variance trade-off를 조절한다.
 
 **가장 큰 기여: differentiable dynamics를 통한 actor gradient.**
 간단히 deterministic reparameterized dynamics를 쓰면
 
-$$
+```math
 s_{t+1}=f_\theta(s_t,a_t),\qquad
 a_t=g_\psi(s_t,\epsilon_t)
-$$
+```
 
 이므로
 
-$$
+```math
 \frac{\partial s_{t+1}}{\partial\psi}
 =
 \frac{\partial f_\theta}{\partial s_t}
@@ -658,16 +658,16 @@ $$
 +
 \frac{\partial f_\theta}{\partial a_t}
 \frac{\partial g_\psi}{\partial\psi}.
-$$
+```
 
-즉 단지 \(\nabla_\psi\log\pi_\psi\)에 return을 곱하는 score-function estimator만 쓰는 것이 아니라, **액션이 미래 상태·보상에 미치는 경로를 미분**할 수 있다. 확률적 RSSM과 policy에서는 reparameterization을 활용한다.
+즉 단지 $\nabla_\psi\log\pi_\psi$에 return을 곱하는 score-function estimator만 쓰는 것이 아니라, **액션이 미래 상태·보상에 미치는 경로를 미분**할 수 있다. 확률적 RSSM과 policy에서는 reparameterization을 활용한다.
 
-Critic은 stop-gradient된 \(\lambda\)-return을 regression target으로 학습한다.
+Critic은 stop-gradient된 $\lambda$-return을 regression target으로 학습한다.
 
-$$
+```math
 \mathcal L_V=
 \mathbb E\left[(V_\xi(s_t)-\operatorname{sg}(G_t^\lambda))^2\right].
-$$
+```
 
 **해결:** 온라인 CEM을 매번 반복하는 대신 상상 속에서 정책과 가치함수를 훈련하고 실제 실행 시 actor를 호출할 수 있게 했다. 다수의 visual continuous-control task에서 sample efficiency와 수행 성능의 개선을 보고했다.
 
@@ -694,17 +694,17 @@ DreamerV2는 discrete/categorical stochastic latent, straight-through gradient, 
 **주요 방법 ①: RSSM의 안정화.**
 Prediction loss와 dynamics/representation KL loss를 나누고, 서로 다른 stop-gradient 방향으로 prior와 posterior를 업데이트한다.
 
-$$
+```math
 \mathcal L_{\rm WM}
 =
 \mathcal L_{\rm pred}
 +\beta_{\rm dyn}\mathcal L_{\rm dyn}
 +\beta_{\rm rep}\mathcal L_{\rm rep}.
-$$
+```
 
 개념적으로
 
-$$
+```math
 \begin{aligned}
 \mathcal L_{\rm dyn}
 &=\max\!\left(1,\,
@@ -713,28 +713,28 @@ D_{\rm KL}(\operatorname{sg}(q_\phi)\Vert p_\theta)\right),\\
 &=\max\!\left(1,\,
 D_{\rm KL}(q_\phi\Vert\operatorname{sg}(p_\theta))\right).
 \end{aligned}
-$$
+```
 
-각각은 **dynamics prior가 posterior를 따라가도록**, 그리고 **representation posterior가 prior와 지나치게 멀어지지 않도록** 작용한다. \(\max(1,\cdot)\)는 KL이 충분히 작을 때 더 줄이는 gradient를 중단하는 free-bits/free-nats 설계다. 논문에서 사용한 비중은 \(\beta_{\rm dyn}=1\), \(\beta_{\rm rep}=0.1\)이다.
+각각은 **dynamics prior가 posterior를 따라가도록**, 그리고 **representation posterior가 prior와 지나치게 멀어지지 않도록** 작용한다. $\max(1,\cdot)$는 KL이 충분히 작을 때 더 줄이는 gradient를 중단하는 free-bits/free-nats 설계다. 논문에서 사용한 비중은 $\beta_{\rm dyn}=1$, $\beta_{\rm rep}=0.1$이다.
 
 **주요 방법 ②: Symlog 및 distributional prediction.**
 
-$$
+```math
 \operatorname{symlog}(x)
 =\operatorname{sign}(x)\log(1+|x|),\qquad
 \operatorname{symexp}(y)
 =\operatorname{sign}(y)(e^{|y|}-1).
-$$
+```
 
 큰 크기의 값을 압축해 환경마다 다른 수치 규모에 덜 민감하게 한다. Reward와 value에는 연속 target을 인접한 두 bin에 분배한 **two-hot categorical prediction**을 사용한다.
 
-예: target \(2.3\)을 bin \(2\), \(3\) 사이에서 0.7과 0.3으로 나누는 방식. 실제 구현에서는 symlog 좌표의 bin을 사용한다.
+예: target $2.3$을 bin $2$, $3$ 사이에서 0.7과 0.3으로 나누는 방식. 실제 구현에서는 symlog 좌표의 bin을 사용한다.
 
 **주요 방법 ③: Return-scale normalization과 Actor objective.**
 
 DreamerV3에서 중요한 차이는 **original Dreamer와 달리 actor 학습에 REINFORCE 형태의 score-function estimator를 사용한다는 점**이다. 개념적으로
 
-$$
+```math
 \mathcal L_\pi
 =-
 \mathbb E\left[
@@ -743,9 +743,9 @@ $$
 \log\pi_\psi(a_t\mid s_t)
 +\eta\mathcal H(\pi_\psi(\cdot\mid s_t))
 \right].
-$$
+```
 
-여기서 \(S\)는 \(\lambda\)-return의 5–95 percentile span을 기반으로 하는 EMA scale이다. \(\max(1,S)\)로 매우 작은 scale에서 advantage가 과도하게 증폭되는 것을 막는다. 원 논문 구현의 세부 entropy/normalization 항과 구별해 이해할 것.
+여기서 $S$는 $\lambda$-return의 5–95 percentile span을 기반으로 하는 EMA scale이다. $\max(1,S)$로 매우 작은 scale에서 advantage가 과도하게 증폭되는 것을 막는다. 원 논문 구현의 세부 entropy/normalization 항과 구별해 이해할 것.
 
 **해결:** Atari, ProcGen, DMLab, DeepMind Control, Minecraft 등 서로 다른 유형의 환경을 고정 hyperparameter로 다루며 강력한 성능을 보고했다. 특히 Minecraft diamond 획득은 장기 계획과 sparse reward의 사례로 중요하다.
 
@@ -753,7 +753,7 @@ $$
 
 **읽을 질문**
 - Dynamics KL과 representation KL은 서로 왜 다른 stop-gradient를 적용하는가?
-- Symlog의 도함수는 큰 \(|x|\)에 대해 얼마나 감소하는가?
+- Symlog의 도함수는 큰 $|x|$에 대해 얼마나 감소하는가?
 - Two-hot과 scalar MSE는 loss scale과 gradient에서 어떻게 다른가?
 - V3가 original Dreamer의 analytic gradient 대신 REINFORCE를 쓰는 장단점은?
 
@@ -843,14 +843,14 @@ latent → prediction → 정책 prior + 가치
 
 다음은 학습 구조를 설명하는 개념식이다.
 
-$$
+```math
 \mathcal L_{\rm pred}
 =
 \left\|
 \mathrm{Predictor}(E_\theta(\mathrm{context}),\mathrm{mask})
 -\mathrm{sg}(E_{\bar\theta}(\mathrm{target}))
 \right\|.
-$$
+```
 
 `sg`는 stop-gradient이고, target encoder는 EMA 등으로 갱신할 수 있다. 표현 붕괴를 막는 세부 설계가 중요하므로, 이 한 줄만 구현하면 V-JEPA가 재현된다고 생각하지 않는다. LeCun의 2022 문서는 성능 비교 논문이 아닌 연구 방향 제안이다.
 
@@ -1063,17 +1063,17 @@ visible·masked token 모두를 활용하는 dense predictive loss, 여러 중�
 
 실제 환경에서의 return
 
-$$
+```math
 J_P(\pi)=\mathbb E_{P,\pi}\sum_{t\ge0}\gamma^t r_t
-$$
+```
 
 과 학습 모델에서의 return
 
-$$
+```math
 J_{\hat P}(\pi)=\mathbb E_{\hat P,\pi}\sum_{t\ge0}\gamma^t r_t
-$$
+```
 
-은 서로 다른 양이다. \(J_{\hat P}\)가 높아도 \(J_P\)가 높다고 결론 내릴 수 없다. 가상 rollout 수를 늘릴수록 policy가 모델 오류를 찾아 이용할 가능성도 있다.
+은 서로 다른 양이다. $J_{\hat P}$가 높아도 $J_P$가 높다고 결론 내릴 수 없다. 가상 rollout 수를 늘릴수록 policy가 모델 오류를 찾아 이용할 가능성도 있다.
 
 <a id="study"></a>
 ## 10. 권장 공부 순서와 작은 실험
@@ -1084,7 +1084,7 @@ $$
 |---|---|---|
 | 1 | World Models, 2018 | VAE-only controller vs recurrent-memory controller 구조 비교 |
 | 2 | PlaNet, 2019 | 짧은 latent rollout과 CEM 후보 수·horizon 변화 실험 |
-| 3 | Dreamer, 2020 | \(n\)-step / \(\lambda\)-return 계산과 imagination actor–critic 확인 |
+| 3 | Dreamer, 2020 | $n$-step / $\lambda$-return 계산과 imagination actor–critic 확인 |
 | 4 | DreamerV2/V3 | KL balancing, free bits, symlog, two-hot의 코드 위치 추적 |
 | 5 | Genie, Diffusion Forcing | Action conditioning과 causal mask를 영상 예측으로 확장 |
 | 6 | UWM, DreamZero, OpenWAM | Video/action denoising와 inference latency 및 KV history 비교 |
@@ -1117,10 +1117,10 @@ WAM은 세계 예측과 실행 가능한 행동 선택의 연결을 핵심으로
 
 | 용어 | 이 노트에서의 의미 |
 |---|---|
-| State \(s_t\) | 세계의 실제 또는 모델 내부 상태; 논문마다 의미가 다름 |
-| Observation \(o_t\) | 카메라/센서로 관측한 정보 |
-| Belief \(b_t\) | 관측 history를 반영한 숨은 상태의 확률분포 |
-| Latent state \(z_t\) | 관측·동역학을 위한 신경망의 확률적 압축 변수 |
+| State $s_t$ | 세계의 실제 또는 모델 내부 상태; 논문마다 의미가 다름 |
+| Observation $o_t$ | 카메라/센서로 관측한 정보 |
+| Belief $b_t$ | 관측 history를 반영한 숨은 상태의 확률분포 |
+| Latent state $z_t$ | 관측·동역학을 위한 신경망의 확률적 압축 변수 |
 | RSSM | Recurrent State-Space Model: 결정론적 기억 + 확률적 latent |
 | Prior / Posterior | 미래 관측 없이 예측 / 관측을 반영한 상태 추론 |
 | World model | 세계 전이·관측·보상 등의 예측 모델 |
@@ -1128,7 +1128,7 @@ WAM은 세계 예측과 실행 가능한 행동 선택의 연결을 핵심으로
 | CEM | 높은 점수의 후보들로 sampling distribution을 반복 갱신하는 최적화 |
 | Latent imagination | 학습한 dynamics에서 가상 미래 상태·보상을 rollout |
 | Actor / Critic | 행동 분포를 학습하는 모델 / 기대 return을 예측하는 모델 |
-| Dreamer \(\lambda\)-return | 여러 bootstrap 길이를 가중 결합한 return |
+| Dreamer $\lambda$-return | 여러 bootstrap 길이를 가중 결합한 return |
 | Model exploitation | 잘못된 world model에서 높아 보이는 보상을 policy가 악용 |
 | Action-conditioned video | 과거 관측과 action을 조건으로 미래 영상을 생성 |
 | Inverse dynamics | 상태 변화에서 이를 유도한 행동을 추론 |
@@ -1156,7 +1156,7 @@ WAM은 세계 예측과 실행 가능한 행동 선택의 연결을 핵심으로
 ### 13.2 앞으로 깊게 보완할 후보
 
 - [ ] PlaNet의 ELBO와 latent overshooting을 원문 조건부 분포로 처음부터 유도
-- [ ] Original Dreamer의 \(\lambda\)-return과 analytic actor-gradient 전체 유도
+- [ ] Original Dreamer의 $\lambda$-return과 analytic actor-gradient 전체 유도
 - [ ] DreamerV2 vs DreamerV3의 actor update와 KL balancing 코드 비교
 - [ ] VAE latent와 JEPA embedding을 동일한 planning task에서 비교
 - [ ] World-model rollout error와 KV/history compression의 영향 정량화
@@ -1183,7 +1183,7 @@ WAM은 세계 예측과 실행 가능한 행동 선택의 연결을 핵심으로
 - Bruce et al., [Genie](https://arxiv.org/abs/2402.15391).
 - Chen et al., [Diffusion Forcing](https://arxiv.org/abs/2407.01392).
 - Chi et al., [Diffusion Policy](https://arxiv.org/abs/2303.04137).
-- Black et al., [\(\pi_0\): Vision-Language-Action Flow Model](https://arxiv.org/abs/2410.24164).
+- Black et al., [$\pi_0$: Vision-Language-Action Flow Model](https://arxiv.org/abs/2410.24164).
 - Ye et al., [DreamZero](https://arxiv.org/abs/2602.15922).
 - [OpenWAM](https://arxiv.org/abs/2610.07922).
 
