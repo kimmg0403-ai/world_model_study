@@ -558,9 +558,20 @@ WAM에서는 $x$가 영상 latent와 행동을 함께 담을 수 있다. **둘�
 <a id="papers-rl"></a>
 ## 5. 필독 논문 I: 모델 기반 RL과 상상 학습
 
+**다음 네 논문의 실제 질문을 하나로 묶으면:** 컵을 옮기는 같은 데이터 $(o_t,a_t,o_{t+1},r_t)$를 받았을 때, (1) 이미지·기억을 따로 학습해 작은 Controller에 전달할까(**World Models**), (2) 다음 컵 상태를 예측하며 지금 여러 행동을 비교할까(**PlaNet**), (3) 가상 컵 옮기기를 수백 번 해 본 경험으로 actor를 훈련할까(**Dreamer**), (4) 이 학습이 다른 로봇·게임·reward 규모에서도 안정되도록 할까(**DreamerV3**), 라는 차이다. **컵 예제는 비교를 위한 설명용 재구성이며 논문의 실제 실험 환경을 뜻하지 않는다.**
+
+| 논문 | World model의 예측 target | 행동을 선택·학습하는 방법 |
+|---|---|---|
+| World Models | 현재 이미지 reconstruction, 다음 VAE latent | 작은 controller를 episode return으로 최적화 |
+| PlaNet | RSSM의 관측·보상 예측과 latent prior | 현재 CEM으로 후보 action sequence 검색 |
+| Dreamer | RSSM 관측·보상 예측 | Imagined return으로 actor–critic 훈련 |
+| DreamerV3 | 안정화된 RSSM prediction | 안정화된 actor–critic 학습 |
+
 이 절은 **작은 환경에서 직접 상호작용하며 배운 모델을 어떻게 제어에 쓰는가**에 초점을 둔다. 각 논문은 먼저 구조 그림을 보고, 모델 학습 손실과 행동 선택 절차를 따로 읽는다.
 
 ### 5.1 Dyna — 가상 경험도 학습 데이터가 된다
+
+**가상 예시:** 로봇이 실제로 '그리퍼를 닫았다 → 컵이 움직였다'는 한 전이를 관측했다고 하자. Dyna는 그 전이로 환경 모델을 개선하고, 모델에서 **실제 로봇을 다시 움직이지 않고** 비슷한 전이를 재생성해 가치·정책 학습에 활용한다. 실제 기록과 모델이 만든 가상 데이터는 반드시 구별해야 하며, 가상 데이터가 틀릴 수 있다는 문제가 남는다.
 
 **원문:** Sutton, *Dyna, an Integrated Architecture for Learning, Planning, and Reacting* (1991). [논문 DOI](https://doi.org/10.1145/122344.122377), [관련 초기 Dyna 장, MIT Press](https://direct.mit.edu/books/edited-volume/3977/chapter/165869/First-Results-with-Dyna-an-Integrated-Architecture)
 
@@ -666,6 +677,17 @@ a_t=W_c[z_t;h_t]+b_c.
 ---
 
 ### 5.3 PlaNet (Hafner et al., ICML 2019) — RSSM과 latent planning
+
+**World Models와 변수 차이를 먼저 확인:** 여기의 $x_t=(u_t,z_t)$는 관측과 행동 history를 바탕으로 추론한 **RSSM 내부 전체 상태**이고, $s_t$는 이 노트에서 실제 환경 상태에 예약한다. 5.2절의 $z_t$는 VAE encoder 하나의 출력이었으므로 서로 이름이 겹쳐도 동일하게 해석하면 안 된다.
+
+| 한 번의 컵 집기 전이 | RSSM에서 하는 일 | 학습에 주는 실제 target |
+|---|---|---|
+| 이전 행동 $a_1$ 실행 | $u_2=f_\theta(u_1,z_1,a_1)$ 계산 | 직접 지도하는 별도 물리 상태 정답은 없음 |
+| 새 영상 $o_2$ 수신 | Posterior $q_\phi(z_2\mid u_2,o_2)$로 현재 latent 추론 | 실제 관측 $o_2$ |
+| 현재/미래 예측 | $p_\theta(o_2\mid x_2)$ 및 reward head | 관측 $o_2$, 전이에 대응하는 기록 reward |
+| 새 영상이 없는 미래 | Prior $p_\theta(z_{t+1}\mid u_{t+1})$로 rollout | 학습 때 실제 sequence로 prior와 posterior를 연결 |
+
+**PlaNet의 가장 중요한 변화:** 이미 학습한 RSSM을 이용해 '컵을 지금 닫기'와 '다시 접근하고 닫기'의 예상 미래 reward를 비교하고 **매 timestep 행동을 새로 계획**한다.
 
 **원문:** *Learning Latent Dynamics for Planning from Pixels* ([2018 프리프린트](https://arxiv.org/abs/1811.04551), [ICML 2019](https://proceedings.mlr.press/v97/hafner19a.html)) · [프로젝트](https://planetrl.github.io/)
 
@@ -777,7 +799,11 @@ World model의 미래는 **영상 decoder 없이** latent와 reward head만으�
 
 ### 5.4 Dreamer 계보 — 잠재 상상에서 Actor-Critic을 학습하기
 
+**PlaNet과 똑같은 컵 장면에서 출발:** PlaNet은 현재 $o_t$를 받을 때마다 행동 후보 100개 등을 평가하는 온라인 검색을 할 수 있다(100은 원리 설명용 예시다). Dreamer는 미리 world model에서 수많은 컵 옮기기 episode를 상상해 **actor를 학습**한다. 따라서 실제 그리퍼를 제어할 때는 학습한 actor가 곧바로 명령을 낸다. World model의 target은 여전히 관측·보상 등이고, **Actor의 target은 높은 return**이라는 점이 다르다.
+
 #### 5.4.1 Dreamer (Hafner et al., ICLR 2020)
+
+**작업의 시간 순서를 놓치지 말자:** $t=1$에서 컵을 잡기 전의 실제 관측을 encoder에 입력해 현재 $x_1$을 추론한다. 이후 **실제 로봇을 움직이지 않고** model prior로 $x_2,x_3,x_4$를 상상한다. 이 가상 전개에서 actor가 선택한 명령과 모델이 예측한 reward를 사용하여 $\lambda$-return target을 만들고 critic/actor를 업데이트한다. 가상으로 예측한 성공이 실제 성공이라는 증거는 아니므로 실제 환경에서의 평가가 중요하다.
 
 **원문:** *Dream to Control: Learning Behaviors by Latent Imagination* ([2019 프리프린트](https://arxiv.org/abs/1912.01603), [ICLR 2020](https://openreview.net/forum?id=S1lOTC4tDS))
 
@@ -859,11 +885,15 @@ Critic은 stop-gradient된 $\lambda$-return을 regression target으로 학습한
 
 #### 5.4.2 DreamerV2 — V3를 이해하기 위한 연결 고리
 
+**왜 categorical latent를 쓰는가?** 연속 latent 대신 여러 카테고리의 조합으로 표현할 수 있다. 컵의 '잡힘/미끄러짐'과 유사한 이산적인 가능성을 떠올릴 수 있지만 **각 카테고리가 사람이 부여한 성공/실패 label이라는 뜻은 아니다**. 모델은 실제 영상·reward 예측에 유리한 이산 표현을 스스로 학습한다.
+
 **원문:** *Mastering Atari with Discrete World Models* ([2020 프리프린트](https://arxiv.org/abs/2010.02193)).
 
 DreamerV2는 discrete/categorical stochastic latent, straight-through gradient, KL balancing 등을 도입·발전시켜 Atari에서도 강력한 imagination learning을 구현했다. **따라서 categorical latent와 KL balancing을 모두 DreamerV3의 최초 발명으로 귀속하면 안 된다.** 이 노트에서는 V2를 V3의 안정화 설계를 이해하기 위한 브리지로 읽는다.
 
 #### 5.4.3 DreamerV3 (Hafner et al., 2023) — 다양한 환경에서 공통 설정으로 학습
+
+**서로 다른 환경의 예(가상):** 컵 옮기기 성공에 $+1$을 주는 환경, 성공에 $+1000$을 주는 환경, 오랫동안 보상이 없다가 성공할 때만 받는 환경을 생각해 보자. 세계를 예측하고 actor를 학습한다는 구조가 같아도 reward magnitude와 sparsity가 달라 gradient가 크게 변할 수 있다. DreamerV3는 **이런 scale·stability 차이에 대처**하기 위해 symlog, two-hot, KL balancing, return normalization 등을 함께 사용한다. 다음 기법들은 단순히 '영상 품질 향상'만을 위한 것이 아니라 **학습 안정화**에 해당한다.
 
 **원문:** *Mastering Diverse Domains through World Models* ([2023 프리프린트](https://arxiv.org/abs/2301.04104), [공식 구현](https://github.com/danijar/dreamerv3)).
 
@@ -937,6 +967,8 @@ DreamerV3에서 중요한 차이는 **original Dreamer와 달리 actor 학습에
 
 #### 5.4.4 네 논문의 핵심 차이를 한 번에 비교
 
+**기억할 한 문장:** 컵을 옮기는 데 World Models는 '시각·시간적 지식을 배운 작은 제어기', PlaNet은 '그때그때 여러 미래 행동을 비교하는 계획기', Dreamer는 '상상으로 미리 훈련된 actor', DreamerV3는 '여러 환경에서도 튼튼하게 배우도록 개선한 Dreamer'를 제공한다.
+
 | 논문 | World representation | 행동 선택 | 가장 중요한 변화 |
 |---|---|---|---|
 | World Models | VAE + MDN-RNN | 작은 controller, CMA-ES | 시각·동역학·제어를 분리하고 꿈 안에서 제어 학습 |
@@ -949,6 +981,8 @@ DreamerV3에서 중요한 차이는 **original Dreamer와 달리 actor 학습에
 ---
 
 ### 5.5 MuZero — 세계의 모든 세부를 예측할 필요는 없다
+
+**컵 예제:** 컵에 비친 형광등의 모양을 미래까지 정확하게 합성하지 않아도, '컵을 잡는 행동이 성공할 확률', '얼마나 보상을 얻을지', '그 다음에 어떤 행동이 좋을지'만 예측해 제어할 수 있다. MuZero는 **다음 이미지 복원에 직접적인 target을 두지 않고** 보상·가치·정책에 유용한 latent transition을 학습하는 사례다. 이는 컵의 세부 영상이 *언제나* 쓸모없다는 뜻이 아니다.
 
 **원문:** Schrittwieser et al., *Mastering Atari, Go, Chess and Shogi by Planning with a Learned Model* (2019). [논문](https://arxiv.org/abs/1911.08265)
 
@@ -968,6 +1002,8 @@ latent → prediction → 정책 prior + 가치
 
 ### 5.6 TD-MPC2 — decoder-free 제어 모델의 확장
 
+**컵 예제:** 현재 그리퍼·컵 영상을 latent로 바꾸고, 후보 행동으로 미래 latent와 reward/가치를 예측한 뒤 짧은 horizon을 계획한다. 이때 책상 질감이나 컵 로고까지 RGB decoder로 재구성하는 것은 제어 목표의 필수 조건이 아닐 수 있다. **PlaNet의 이미지 reconstruction 목표와 TD-MPC2의 제어 중심 latent 목표**를 대비해서 읽는다.
+
 **원문:** Hansen et al., *TD-MPC2: Scalable, Robust World Models for Continuous Control* (2023). [논문](https://arxiv.org/abs/2310.16828), [공식 프로젝트](https://www.tdmpc2.com/)
 
 - **아이디어:** 관측 reconstruction 대신 latent dynamics·보상·가치를 제어 목적에 맞게 학습하고, 짧은 trajectory optimization과 terminal value를 결합한다.
@@ -978,6 +1014,8 @@ latent → prediction → 정책 prior + 가치
 **비교 질문:** MuZero, TD-MPC2, JEPA는 모두 픽셀 복원 없이 동작할 수 있는데, 각각 무엇을 정답으로 삼아 latent를 학습하는가?
 
 ### 5.7 IRIS와 DIAMOND — 세계 모델의 표현 방식이 행동을 바꾼다
+
+**컵 예제:** IRIS 방식의 discrete image token은 다음 관측을 token sequence로 예측한다고 생각할 수 있다. DIAMOND처럼 diffusion을 사용하는 경우에는 다음 장면의 시각적 세부를 생성하는 능력이 중요할 수 있다. 예를 들어 **컵 가장자리와 손가락 사이의 작은 간격**을 놓치면 미래 조작의 성공 여부도 틀릴 수 있다. 이 이야기는 직관용 사례이며 원논문은 Atari 중심 실험 등 각자의 설정을 가진다.
 
 **IRIS:** Micheli et al., *Transformers are Sample-Efficient World Models* (2022). [논문](https://arxiv.org/abs/2209.00588)
 
@@ -990,6 +1028,8 @@ latent → prediction → 정책 prior + 가치
 **같이 읽는 이유:** “픽셀은 낭비”와 “픽셀은 중요”를 보편적인 양자택일로 보지 않는다. 작업에 필요한 정보를 어떤 표현이 보존하는지 실험으로 판단해야 한다.
 
 ### 5.8 Dreamer 4 — 큰 세계 모델 안에서 오프라인 RL
+
+**설명용 비유:** 로봇의 과거 컵 옮기기 영상·행동 기록만 주어졌고 오늘은 실제 로봇을 움직일 수 없다고 하자. 세계 모델 안에서 그 데이터를 출발점으로 미래를 상상하고 policy를 훈련하는 것이 **offline imagination RL**의 직관이다. 실제 Dreamer 4의 대표 실험은 Minecraft 등이며, '컵 옮기기'는 논문 실험이 아니라 절차를 설명하는 예시다.
 
 **원문:** Hafner, Yan & Lillicrap, *Training Agents Inside of Scalable World Models* (2025-09). [논문](https://arxiv.org/abs/2509.24527), [구조와 학습 절차](https://arxiv.org/html/2509.24527v1)
 
