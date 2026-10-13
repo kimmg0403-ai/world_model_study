@@ -1047,9 +1047,13 @@ latent → prediction → 정책 prior + 가치
 <a id="papers-foundation"></a>
 ## 6. 필독 논문 II: 영상·표현 기반 세계 모델
 
+**이제 학습 데이터가 달라진다.** 앞서 컵을 집는 로봇의 $(o_t,a_t,o_{t+1})$를 모두 기록했다면, 인터넷 영상에는 보통 $a_t$가 없다. **손이 컵을 잡는 장면은 볼 수 있지만, 실제 로봇에 보내야 할 관절 명령은 알 수 없는 것**이다. 6절은 대규모 영상으로 무엇을 배울 수 있는지, 그것이 action-conditioned world model이 되려면 무엇을 더 배워야 하는지를 살펴본다.
+
 이 절에서는 사전학습 데이터가 환경별 상호작용에서 대규모 영상으로 확장된다. 항상 **사전학습에 행동이 있는지**, **제어 단계에서 행동과 어떻게 연결하는지**를 표시하면서 읽는다.
 
 ### 6.1 LeCun의 구상과 V-JEPA — 예측할 표현을 학습하기
+
+**컵 예제:** 손이 컵을 가리는 영상에서 encoder는 보이는 주변 frame으로부터 가려진 부분의 **feature**를 예측한다. 정답은 RGB 픽셀 그 자체가 아니라 target encoder가 만든 embedding일 수 있다. 따라서 '컵의 어떤 무늬가 보일까'보다는 '컵과 손이 어떻게 관계를 맺는가'에 집중할 여지가 생긴다. 다만 이 pretraining만으로 로봇의 그리퍼 명령 $a_t$를 예측하도록 훈련된 것은 아니다.
 
 **원문:** LeCun, *A Path Towards Autonomous Machine Intelligence* (2022). [position paper](https://openreview.net/forum?id=BZ5a1r-kVsf)  
 **구체적 모델:** Bardes et al., *Revisiting Feature Prediction for Learning Visual Representations from Video* (2024). [V-JEPA 논문](https://arxiv.org/abs/2404.08471)
@@ -1074,6 +1078,8 @@ $\operatorname{sg}$는 stop-gradient이고, target encoder는 EMA 등으로 갱�
 
 ### 6.2 V-JEPA 2 — 행동 없는 사전학습에서 행동 조건부 계획으로
 
+**단계별 예시:** (1) 사람 손이 컵을 집는 수많은 영상을 보며 cup motion을 표현하는 encoder를 학습한다. (2) 이후 로봇 팔의 $(o_t,a_t,o_{t+1})$ 데이터에서 **행동에 따른 다음 representation**을 예측하는 모듈을 학습한다. (3) 현재 컵 영상, 목표 컵 영상, 여러 후보 그리퍼 명령을 입력해 **목표 representation에 가장 가까운 미래를 만드는 행동**을 고른다. 사전학습 영상에 action label이 없다는 것과 후속 계획 모델에도 action이 불필요하다는 것은 다른 이야기다.
+
 **원문:** Assran et al., *V-JEPA 2: Self-Supervised Video Models Enable Understanding, Prediction and Planning* (2025-06). [논문](https://arxiv.org/abs/2506.09985), [학습·계획 설명](https://arxiv.org/html/2506.09985v1)
 
 ~~~text
@@ -1092,6 +1098,8 @@ $\operatorname{sg}$는 stop-gradient이고, target encoder는 EMA 등으로 갱�
 
 ### 6.3 V-JEPA 2.1 — 조밀한 공간·시간 표현
 
+**왜 dense feature가 필요한가?** 로봇이 컵을 잡을 때 컵이 존재한다는 전역 semantic 정보만으로는 부족하다. 그리퍼 왼쪽 손가락과 컵 테두리 사이가 3mm인지 10mm인지와 같은 **국소적인 공간 정보**가 행동 성공에 중요할 수 있다. 수치는 직관을 위한 가정이며 이 논문의 정확한 물리 거리 예측 성능을 뜻하지 않는다.
+
 **원문:** Mur-Labadia et al., *V-JEPA 2.1: Unlocking Dense Features in Video Self-Supervised Learning* (2026-03). [논문](https://arxiv.org/abs/2603.14482)
 
 visible·masked token 모두를 활용하는 dense predictive loss, 여러 중간 층의 self-supervision, 이미지·영상 통합 학습과 확장을 통해 공간적으로 조밀하고 시간적으로 일관된 표현을 만든다.
@@ -1101,6 +1109,8 @@ visible·masked token 모두를 활용하는 dense predictive loss, 여러 중�
 **주의:** encoder 표현 개선, action-conditioned predictor, 최종 제어 성공률을 각각 구분해서 평가한다.
 
 ### 6.4 Genie — 행동 라벨 없이 상호작용 가능한 세계
+
+**관찰된 동작과 실제 명령의 차이:** 컵이 왼쪽으로 밀리는 영상 두 장으로 latent action $z_t^a$를 만들 수 있어도, 그것이 로봇 관절의 실제 속도 명령 $a_t$와 같은 것은 아니다. Genie의 주된 논지는 **행동 라벨이 없는 영상에서 조작 가능한 latent action과 환경 dynamics를 학습**할 수 있다는 것이다. 이를 바로 컵 집기 로봇에 실행하려면 latent action에서 실제 actuator command로의 연결이 별도로 필요하다.
 
 **원문:** Bruce et al., *Genie: Generative Interactive Environments* (2024). [논문](https://arxiv.org/abs/2402.15391)
 
@@ -1114,6 +1124,8 @@ visible·masked token 모두를 활용하는 dense predictive loss, 여러 중�
 
 ### 6.5 Diffusion Forcing — 자기회귀와 확산의 결합
 
+**두 축을 분리해 보자:** 컵을 잡기 전 실제 frame $o_1$은 이미 주어진 **clean history**이고, 컵을 든 다음의 미래 frame $o_3,o_4$는 생성해야 하는 대상이라고 하자. 각 frame에 서로 다른 noise level을 부여하면 미래를 여러 단계에 걸쳐 denoise하면서 과거를 조건으로 사용할 수 있다. **환경 시간 $t=1,3,4$와 denoising 단계 $\tau$는 전혀 다른 좌표축**이다. 이 예시는 조건부 noise schedule의 직관이지 특정 논문의 고정 sampling schedule을 뜻하지 않는다.
+
 **원문:** Chen et al., *Diffusion Forcing: Next-token Prediction Meets Full-Sequence Diffusion* (2024). [논문](https://arxiv.org/abs/2407.01392)
 
 시퀀스 토큰마다 독립적인 noise level을 적용해 학습한다. 과거를 조건으로 미래 토큰을 만들면서도, 여러 미래 시점에 대한 생성·guidance를 유연하게 조절한다.
@@ -1123,6 +1135,8 @@ visible·masked token 모두를 활용하는 dense predictive loss, 여러 중�
 **연결:** Dreamer 4의 shortcut forcing을 읽기 전 배경이다. **환경 시간의 causal order**와 **생성 시 noise를 제거하는 순서**는 서로 다른 축이라는 점을 기억한다.
 
 ### 6.6 Cosmos와 Cosmos 3 — 세계 모델을 범용 기반으로 확장
+
+**모달리티를 컵 작업에 대응해 보기:** 입력은 카메라 영상, '선반으로 옮겨라'라는 언어 명령, 관절 각도(proprioception)일 수 있다. 출력은 미래 영상·로봇 action sequence·상태 예측 등일 수 있다. 여러 모달리티를 하나의 world foundation model에서 다룬다는 말은 이러한 **입력과 출력의 조합을 지원하려는 방향**이라는 뜻이다. 개별 checkpoint가 모든 조합을 즉시 수행한다는 주장과 구분하자.
 
 **Cosmos 원문:** *Cosmos World Foundation Model Platform for Physical AI* (2025-01). [논문](https://arxiv.org/abs/2501.03575)
 
@@ -1139,7 +1153,11 @@ visible·masked token 모두를 활용하는 dense predictive loss, 여러 중�
 <a id="papers-wam"></a>
 ## 7. 필독 논문 III: VLA에서 WAM으로
 
+**여기서는 컵을 선반에 놓는 작업의 목적이 분명하다.** 입력은 현재 관측 $o_t$와 지시 $g=$ '컵을 오른쪽 선반에 놓아라'다. **VLA**는 직접 실행할 $A$를 생성할 수 있고, **WAM**은 미래 장면 $O^+$와 행동 $A$의 관계를 학습해 미래를 상상하거나 joint generation·planning을 수행할 수 있다. 어떤 아키텍처가 더 '고급'인가보다 **무엇을 생성하며 실제 control에 어떤 정보를 쓰는가**를 비교한다.
+
 ### 7.1 먼저 VLA를 공정하게 이해하기
+
+**예시로 세 모델을 읽기:** RT-2에서는 '컵을 선반에 놓아라'와 현재 영상으로부터 다음 로봇 행동을 **토큰 형태로 표현**해 생성할 수 있다. $\pi_0$에서는 같은 목표를 향한 **연속적인 행동 chunk**를 flow matching으로 생성한다. $\pi_{0.5}$에서는 새로운 주방/컵/선반 상황에 대응하기 위한 이질적 데이터를 활용한다. **직접 미래 영상 $O^+$를 출력하지 않아도 policy일 수 있다.**
 
 **RT-2:** *Vision-Language-Action Models Transfer Web Knowledge to Robotic Control* (2023). [논문](https://arxiv.org/abs/2307.15818)
 
@@ -1159,6 +1177,8 @@ visible·masked token 모두를 활용하는 dense predictive loss, 여러 중�
 
 ### 7.2 UniPi — 미래 영상 계획에서 행동 추출
 
+**Video-first 예시:** '컵을 선반에 놓아라'라는 지시로, 컵이 집히고 선반에 놓인 **미래 영상**을 먼저 만든다. 그 다음 inverse dynamics model이 연속 frame의 차이에서 '그리퍼를 얼마나 움직이고 언제 닫아야 하는가'라는 action을 추론한다. 여기서 **그럴듯하게 그린 컵 이동**과 **실제로 구현 가능한 접촉·힘·행동**이 일치하지 않을 수 있다는 것이 중요한 한계다.
+
 **원문:** Du et al., *Learning Universal Policies via Text-Guided Video Generation* (2023). [논문](https://arxiv.org/abs/2302.00111)
 
 ~~~text
@@ -1173,6 +1193,8 @@ visible·masked token 모두를 활용하는 dense predictive loss, 여러 중�
 
 ### 7.3 UVA — 공동 학습과 빠른 실행을 양립시키기
 
+**학습과 추론을 구별하자:** 학습할 때는 컵을 옮기는 미래 영상과 그리퍼 action을 모두 target으로 사용할 수 있다. 그러나 실제 제어 시간이 촉박할 때는 **학습한 공동 표현만 활용하고 video decoder 전체를 매번 실행하지 않은 채 action head를 호출**할 수 있다. 공동 학습했다는 사실과 추론 때 모든 미래 영상을 실제로 렌더링한다는 것은 다르다.
+
 **원문:** Li et al., *Unified Video Action Model* (2025-02). [논문](https://arxiv.org/abs/2503.00200), [공식 프로젝트](https://unified-video-action-model.github.io/)
 
 영상과 행동의 joint latent representation을 학습하고, 두 개의 가벼운 diffusion head로 decoding을 분리한다. 추론 때 영상 생성을 건너뛰고 행동을 빠르게 생성할 수 있다. 입력의 일부를 가리는 학습으로 policy, 정동역학, 역동역학 등의 조건화를 지원한다.
@@ -1183,6 +1205,8 @@ visible·masked token 모두를 활용하는 dense predictive loss, 여러 중�
 
 ### 7.4 WorldVLA — 자기회귀 행동·세계 모델 통합
 
+**AR 순서 예시:** 그리퍼를 닫는 action token을 생성하고, 이후 컵의 미래 frame 및 다음 action을 이어 만드는 방법을 상상해 보자. 자기회귀 모델에서는 앞서 잘못 생성된 그리퍼 행동이나 컵 영상이 뒤의 token에 영향을 줄 수 있다. 따라서 **causal mask와 attention 설계가 어떤 token이 어떤 과거를 참고하는지** 직접 확인해야 한다. 이 순서는 직관용 예시이며 실제 token 배치는 원문 아키텍처를 기준으로 확인한다.
+
 **원문:** Cen et al., *WorldVLA: Towards Autoregressive Action World Model* (2025-06). [논문](https://arxiv.org/abs/2506.21539)
 
 하나의 자기회귀 프레임워크에서 이미지와 행동의 이해·생성을 통합한다. 세계 예측은 행동 생성을 돕고, 행동 정보는 미래 영상 예측을 돕는 공동 학습을 다룬다. 행동 chunk를 자기회귀적으로 생성할 때 앞선 행동 오차가 전파되는 문제에 attention mask 전략을 제안한다.
@@ -1190,6 +1214,8 @@ visible·masked token 모두를 활용하는 dense predictive loss, 여러 중�
 **의미:** WAM을 특정한 video diffusion backbone만으로 정의하면 이 계보를 놓친다. 통합 학습은 자기회귀, diffusion, representation prediction 등 여러 방식으로 가능하다.
 
 ### 7.5 Cosmos Policy — 행동·미래 관측·가치를 영상 latent 형식에 넣기
+
+**컵 예제:** 영상 latent frame에 로봇 관절 상태를 표현하고, '컵을 집는 행동 chunk' 및 행동 후의 미래 관측·value를 예측하는 상황을 생각하자. 여기서 **미래 한 지점의 관측을 예측하는 것**과 그 사이의 모든 frame을 빠짐없이 생성하는 것은 구분해야 한다. 모델이 무엇을 예측 target으로 삼는지와 실제 제어 시 어떤 출력을 호출하는지를 나누어 읽자.
 
 **원문:** Kim et al., *Cosmos Policy: Fine-Tuning Video Models for Visuomotor Control and Planning* (2026-01). [논문](https://arxiv.org/abs/2601.16163), [공식 프로젝트](https://research.nvidia.com/labs/dir/cosmos-policy/)
 
@@ -1207,6 +1233,8 @@ visible·masked token 모두를 활용하는 dense predictive loss, 여러 중�
 **비교 포인트:** 모델 크기만이 아니라, 어떤 modality를 latent에 넣었는지와 추론 때 policy·forward model·value를 어떤 조건화로 호출하는지 확인한다.
 
 ### 7.6 DreamZero — 영상·행동 공동 생성과 실제 폐루프 제어
+
+**Joint generation 예시:** 현재 컵·그리퍼 영상과 '선반에 올려라'라는 명령이 주어졌을 때, 모델은 **컵이 들리는 미래 video latent**와 **로봇의 집기·들기 action sequence**를 함께 예측한다. 실제 동작 중 컵이 미끄러졌다면 다음 카메라 관측을 다시 반영해 행동을 조정해야 한다. **미래가 사실적이라는 것과 실행된 관절 명령이 물리적으로 성공했다는 것은 다른 평가**다.
 
 **원문:** Ye et al., *World Action Models are Zero-shot Policies* (2026-02). [논문](https://arxiv.org/abs/2602.15922), [공식 프로젝트](https://dreamzero0.github.io/), [공식 코드](https://github.com/dreamzero0/dreamzero)
 
@@ -1226,6 +1254,8 @@ visible·masked token 모두를 활용하는 dense predictive loss, 여러 중�
 
 ### 7.7 네 접근을 한 화면에서 비교
 
+**컵 예제로 기억할 네 가지 경로:** UniPi는 *미래 영상 → inverse dynamics → 행동*, V-JEPA 2-AC는 *후보 행동 → 미래 feature → 목표 feature와 거리 비교*, Cosmos Policy는 *행동·미래 관측·value를 같은 기반 모델에서 활용*, DreamZero는 *미래 영상·행동의 공동 생성*이다. 같은 목표를 다루더라도 **어떤 modality를 먼저 예측하는지**가 다르다.
+
 | 접근 | 핵심 흐름 | 미래의 표현 | 행동 선택 때 중요한 요소 |
 |---|---|---|---|
 | UniPi | 영상 계획 → 역동역학 | 미래 영상 | 영상 실현 가능성, IDM |
@@ -1239,6 +1269,8 @@ visible·masked token 모두를 활용하는 dense predictive loss, 여러 중�
 
 <a id="recent"></a>
 ## 8. 2026년 최신 쟁점과 추가 읽기
+
+**최근 논문의 새 용어를 만나면** '컵을 선반에 놓기'라는 장면에서 현재 영상, 목표, 행동, 미래 영상 가운데 **무엇을 입력받고 무엇을 target으로 학습하는지** 먼저 확인하자. 그런 다음 그 모델이 closed-loop로 실제 컵이 떨어지는 사건을 어떻게 수정하는지 살펴본다.
 
 초기의 latent world model과 달리 최근 연구의 관심은 **대규모 영상 사전학습 지식이 실행 가능한 action과 어떻게 연결되는가**로 확장되었다. 아래는 학습할 때 대비할 대표적인 접근이다.
 
@@ -1255,6 +1287,8 @@ visible·masked token 모두를 활용하는 dense predictive loss, 여러 중�
 
 ### 8.1 열려 있는 다섯 가지 연구 문제
 
+**실패 사례로 구분하기:** (1) 컵 색깔은 잘 그리지만 그리퍼 접촉을 틀리면 prediction–control 불일치, (2) 영상에는 컵 이동만 있고 로봇 torque가 없다면 latent action alignment, (3) 닫기/열기 명령을 바꿔도 미래가 거의 같다면 counterfactual 실패, (4) 컵이 잠깐 가려졌을 때 옛 위치를 잊으면 long-term memory 실패, (5) 추론이 늦어서 컵을 놓친 뒤에야 닫기 명령이 나오면 closed-loop latency 문제다.
+
 1. **Prediction과 control의 불일치:** 영상 prediction loss가 낮아도 로봇의 task success가 높지 않을 수 있다.
 2. **Action 없는 영상에서 행동 얻기:** latent motion과 실제 actuator command 사이의 alignment가 필요하다.
 3. **Counterfactual consistency:** 같은 상황에서 다른 행동을 적용했을 때 올바르게 다른 미래를 예측해야 한다.
@@ -1264,7 +1298,11 @@ visible·masked token 모두를 활용하는 dense predictive loss, 여러 중�
 <a id="evaluation"></a>
 ## 9. 대표 방법 비교와 논문 평가법
 
+**예제에서 좋은 미래 예측과 좋은 로봇 성능은 다르다.** 컵이 선반 위에 놓이는 고화질 비디오를 생성해도 실제 그리퍼가 컵을 놓치면 task success는 $0$이다. 반대로 RGB 영상에 다소 artifact가 있어도 접촉을 정확히 예측하면 행동 결정에 유용할 수 있다. 논문을 읽을 때 **시각 품질, 행동 성공률, 예측 오차, 추론 지연**을 따로 적는다.
+
 ### 9.1 논문마다 체크할 축
+
+**직접 작성해 볼 비교표:** '컵 옮기기' 실험이라면 입력이 카메라만인지 관절각도도 포함하는지, action이 실제 joint command인지 latent action인지, 정답 영상이 있는지, 행동 선택 시 100개 후보를 평가하는지 또는 actor를 한 번 호출하는지, 성공률을 **실제 로봇**에서 측정했는지를 표시한다. 이렇게 하면 '동작하는 세계 모델'과 '예쁜 영상 생성기'를 구별할 수 있다.
 
 | 평가 축 | 반드시 확인할 질문 |
 |---|---|
@@ -1278,6 +1316,8 @@ visible·masked token 모두를 활용하는 dense predictive loss, 여러 중�
 | Memory | History 길이 증가에 따라 KV memory와 rollout error가 어떻게 바뀌는가? |
 
 ### 9.2 예상 성능과 실제 성능을 분리하자
+
+**반례(가상):** 가상 세계에서는 컵이 늘 손에 붙어 있다고 잘못 예측해 $J_{\hat P}(\pi)=0.9$라고 평가할 수 있다. 현실에서는 컵이 계속 떨어져 $J_P(\pi)=0.1$일 수 있다. 이 숫자는 가상 예시일 뿐 논문 결과가 아니다. **모델 내부의 성공률과 실제 task success는 다른 측정량**이다.
 
 실제 환경에서의 return
 
@@ -1296,6 +1336,8 @@ J_{\hat P}(\pi)=\mathbb E_{\hat P,\pi}\sum_{t\ge0}\gamma^t r_t
 <a id="study"></a>
 ## 10. 권장 공부 순서와 작은 실험
 
+**각 논문을 읽은 뒤 5문장으로 요약해 보자.** (1) 컵 예제의 **실제 입력 데이터**는 무엇인가? (2) 모델의 **출력과 학습 target**은 무엇인가? (3) 어떤 loss나 reward로 파라미터를 업데이트하는가? (4) 실제 로봇에서 **어떻게 action을 결정**하는가? (5) 컵을 놓쳤을 때 어디서 오차를 발견하고 고칠 수 있는가? 이 다섯 답변을 같은 표에 넣으면 수식과 학습 절차가 분리되어 이해된다.
+
 처음 한 바퀴는 **World Models → PlaNet → Dreamer → DreamerV3**에 집중한다. 각 논문에서 'world model이 무엇을 예측하는가', 'policy가 어떻게 action을 결정하는가', '어떤 데이터를 실제 환경에서 얻는가'를 3열 표로 기록한다.
 
 | 단계 | 읽기 | 구현 또는 검증 |
@@ -1311,6 +1353,8 @@ J_{\hat P}(\pi)=\mathbb E_{\hat P,\pi}\sum_{t\ge0}\gamma^t r_t
 
 <a id="faq"></a>
 ## 11. 자주 헷갈리는 질문과 이해도 점검
+
+**이해도 점검 예시:** 카메라가 컵이 잡혔다고 *보이는* 장면 $o_2$를 주어도, 실제 컵의 접촉력은 $s_2$에만 있고 모델은 이를 완전히 알지 못할 수 있다. VAE latent와 RSSM 상태는 그런 정보를 보존하거나 추정하도록 학습되지만, 사람이 물리량의 정답을 보증하는 벡터가 아니다. 뒤의 질문을 모두 이 한 장면에 대입해 보자.
 
 **Q0. $s_t$, $o_t$, $x_t$는 어떻게 구분하는가?**  
 $s_t$는 실제 환경 상태, $o_t$는 실제 센서 관측, $x_t$는 관측과 행동 이력으로부터 추론한 모델 내부의 잠재 상태다. $x_t$가 $s_t$와 같다는 보장은 없다. 상세한 표·수식·예시는 [3.2절](#math)에 정리했다.
@@ -1341,6 +1385,8 @@ WAM은 세계 예측과 실행 가능한 행동 선택의 연결을 핵심으로
 
 <a id="glossary"></a>
 ## 12. 용어 사전
+
+**표기를 다시 강조:** 5.2절 World Models의 $z_t$는 VAE 이미지 latent, $h_t$는 MDN-RNN history다. 5.3절 PlaNet과 4.1절 RSSM의 $x_t=(u_t,z_t)$는 다른 아키텍처의 recurrent + stochastic 상태를 나타낸다. **동일한 기호 $z_t$를 쓰더라도 같은 tensor라고 가정하면 안 된다.** 논문에서 원래 사용하는 기호와 노트의 통일 표기를 항상 비교하자.
 
 | 용어 | 이 노트에서의 의미 |
 |---|---|
@@ -1396,6 +1442,7 @@ WAM은 세계 예측과 실행 가능한 행동 선택의 연결을 핵심으로
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-10-13 | 전 절을 컵 옮기기 공통 예제로 다시 연결: 학습 데이터·기호 대응·모델별 prediction target·action 결정 과정·설명용 수치 및 실제 논문 실험과의 구별 보강 |
 | 2026-10-13 | 4절 도입부에 학습 데이터와 예측 대상, 공 밀기 예시, RSSM → MPC → Dreamer → 생성·실시간 제어 흐름을 간결하게 추가 |
 | 2026-10-13 | 4.1절의 prior $p_\theta$ / approximate posterior $q_\phi$의 의미와 deterministic $u_t$ / stochastic $z_t$의 차이를 수식, 예시, 학습·rollout 순서로 보충; FAQ·용어집 업데이트 |
 | 2026-10-13 | 3.3~3.4절의 목표 $g$를 구체적으로 정의하고 reward와의 차이, 가능한 목표 조건의 형태, 선택적 입력이라는 점을 명시; FAQ 및 용어집 보강 |
