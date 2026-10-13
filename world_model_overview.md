@@ -133,11 +133,11 @@
 
 | 이름 | 질문 | 단순화한 형태 |
 |---|---|---|
-| Forward dynamics, 정동역학 | 지금 이 행동을 하면 어떻게 되는가? | `p(o_{t+1} \| h_t, a_t)` |
-| Inverse dynamics, 역동역학 | 지금 모습에서 저 모습으로 가려면 어떤 행동이 필요한가? | `p(a_t \| o_t, o_{t+1})` |
-| Policy, 정책 | 목표를 위해 지금 무엇을 할 것인가? | `π(a_t \| h_t, g)` |
+| Forward dynamics, 정동역학 | 지금 이 행동을 하면 어떻게 되는가? | $p(o_{t+1}\mid h_t,a_t)$ |
+| Inverse dynamics, 역동역학 | 지금 모습에서 저 모습으로 가려면 어떤 행동이 필요한가? | $p(a_t\mid o_t,o_{t+1})$ |
+| Policy, 정책 | 목표를 위해 지금 무엇을 할 것인가? | $\pi(a_t\mid h_t,g)$ |
 
-여기서 `h_t`는 지금까지의 관측·행동 이력이고, `g`는 목표다. 표 안의 `\|`는 조건부 확률의 세로줄을 Markdown 표에 안전하게 표시한 것이다.
+여기서 $h_t$는 지금까지의 관측·행동 이력이고, $g$는 목표다. 표 안의 조건부 확률에는 $\mid$를 사용하여 Markdown 표의 구분자와 충돌하지 않도록 했다.
 
 역동역학은 정동역학의 단순한 행렬 역연산이 아니다. 동일한 관측 변화가 여러 행동으로 가능하거나, 가려진 접촉·힘 때문에 영상을 보고 행동을 유일하게 정할 수 없기 때문이다.
 
@@ -191,13 +191,13 @@ o_t\sim O(o_t\mid s_t),\qquad
 r_t=R(s_t,a_t).
 ```
 
-- `s_t`: 실제 환경 상태.
-- `o_t`: 센서로 얻은 관측.
-- `a_t`: 환경에 적용한 행동.
-- `r_t`: `a_t`를 실행한 전이에 대응하는 보상.
-- `h_t=(o_0,a_0,\ldots,a_{t-1},o_t)`: 관측과 행동의 이력.
-- `b_t(s)=P(s_t=s\mid h_t)`: 가능한 실제 상태에 대한 믿음, 즉 belief.
-- `x_t`: 신경망이 학습한 압축 상태. 정확한 belief와 같다고 가정하지 않는다.
+- $s_t$: 실제 환경 상태.
+- $o_t$: 센서로 얻은 관측.
+- $a_t$: 환경에 적용한 행동.
+- $r_t$: $a_t$를 실행한 전이에 대응하는 보상.
+- $h_t=(o_0,a_0,\ldots,a_{t-1},o_t)$: 관측과 행동의 이력.
+- $b_t(s)=P(s_t=s\mid h_t)$: 가능한 실제 상태에 대한 믿음, 즉 belief.
+- $x_t$: 신경망이 학습한 압축 상태. 정확한 belief와 같다고 가정하지 않는다.
 
 정지 화면 한 장으로는 컵이 왼쪽으로 움직이는지 오른쪽으로 움직이는지 알기 어렵다. **부분 관측 때문에 기억과 이력 조건화가 필요하다.**
 
@@ -208,7 +208,7 @@ p_\theta(x_{t+1},r_t,c_t\mid x_t,a_t),
 \qquad p_\theta(o_t\mid x_t).
 ```
 
-`c_t`는 전이 이후 에피소드가 계속될지 나타내는 continuation 변수다. 관측 decoder, 보상 head, continuation head는 모든 WM에 필수인 것은 아니다.
+$c_t$는 전이 이후 에피소드가 계속될지 나타내는 continuation 변수다. 관측 decoder, 보상 head, continuation head는 모든 WM에 필수인 것은 아니다.
 
 ### 3.3 정책과 계획의 목적
 
@@ -217,7 +217,7 @@ p_\theta(x_{t+1},r_t,c_t\mid x_t,a_t),
 J(\pi)=\mathbb E_{\pi,P}\left[\sum_{t=0}^{T-1}\gamma^t r_t\right].
 ```
 
-`γ`는 미래 보상의 할인율이다. 세계 모델로 계산한 예상 수익 `\hat J`가 커도 실제 환경의 `J`가 크다는 보장은 없다. 이것이 model bias 문제의 출발점이다.
+$\gamma$는 미래 보상의 할인율이다. 세계 모델로 계산한 예상 수익 $\hat{J}$가 커도 실제 환경의 $J$가 크다는 보장은 없다. 이것이 model bias 문제의 출발점이다.
 
 보상이 없는 목표 조건부 계획도 가능하다.
 
@@ -230,11 +230,11 @@ d(\hat x_{t+H},x_g)+
 \right].
 ```
 
-`x_g`는 목표 표현, `d`는 목표까지의 거리, `C`는 행동 비용이다. 이 수식은 **실제 세계가 아니라 모델이 예측한 세계 안에서 최적화**한다.
+$x_g$는 목표 표현, $d$는 목표까지의 거리, $C$는 행동 비용이다. 이 수식은 **실제 세계가 아니라 모델이 예측한 세계 안에서 최적화**한다.
 
 ### 3.4 WAM의 핵심 확률분포
 
-미래 관측열을 `O^+=o_{t+1:t+H}`, 행동열을 `A=a_{t:t+H-1}`라고 하면, 학습용 일반형은 다음과 같다.
+미래 관측열을 $O^{+}=o_{t+1:t+H}$, 행동열을 $A=a_{t:t+H-1}$라고 하면, 학습용 일반형은 다음과 같다.
 
 ```math
 p_\theta(O^+,A\mid h_t,g).
@@ -259,7 +259,7 @@ p_\theta(O^+\mid A,h_t,g).
 - 두 번째는 **행동을 제안하고 그 결과를 예측한다**는 관점이다.
 - 실제 공동 생성 모델이 이 순서대로 두 개의 독립 모델을 실행한다는 뜻은 아니다.
 - 두 분해가 수학적으로 가능하다고 해서 아키텍처·attention mask·학습 절차가 동등한 것은 아니다.
-- 확률적 공동 모델링만으로 `P(O^+\mid \mathrm{do}(A))`라는 인과적 개입 효과를 정확히 배웠다고 결론 낼 수 없다.
+- 확률적 공동 모델링만으로 $P(O^{+}\mid \mathrm{do}(A))$라는 인과적 개입 효과를 정확히 배웠다고 결론 낼 수 없다.
 
 **핵심 질문:** 이 모델은 그럴듯한 미래와 행동의 상관관계를 배우는가, 아니면 내가 선택한 새로운 행동의 결과까지 믿을 만하게 예측하는가? [DreamZero §3.1](https://arxiv.org/html/2602.15922v1#S3.SS1), [WAM 설계 비교 연구](https://arxiv.org/abs/2609.24048)
 
@@ -283,10 +283,10 @@ q_\phi(z_t\mid u_t,o_t),
 \qquad x_t=(u_t,z_t).
 ```
 
-- `u_t`: 과거를 누적하는 deterministic recurrent state.
-- `z_t`: 여러 가능한 상황을 나타내는 stochastic state.
-- **Prior** `p`: 현재 실제 관측 없이 미래를 예측할 때 사용.
-- **Posterior** `q`: 실제 관측을 보고 상태를 추정할 때 사용.
+- $u_t$: 과거를 누적하는 deterministic recurrent state.
+- $z_t$: 여러 가능한 상황을 나타내는 stochastic state.
+- **Prior** $p$: 현재 실제 관측 없이 미래를 예측할 때 사용.
+- **Posterior** $q$: 실제 관측을 보고 상태를 추정할 때 사용.
 
 훈련 때 관측을 본 posterior만 잘 맞고 prior가 나쁘면, 관측 없는 상상 rollout은 금방 무너진다. 따라서 양쪽을 연결해야 한다.
 
@@ -347,7 +347,7 @@ G^\lambda_t=\hat r_t+
 
 ### 4.4 예측 오차가 누적되는 이유
 
-한 단계 후 예측 `\hat x_{t+1}`를 다시 입력해 `\hat x_{t+2}`를 만들면, 모델은 점점 실제 데이터에서 벗어난 상태를 보게 된다.
+한 단계 후 예측 $\hat{x}_{t+1}$를 다시 입력해 $\hat{x}_{t+2}$를 만들면, 모델은 점점 실제 데이터에서 벗어난 상태를 보게 된다.
 
 세 가지 다른 문제가 있다.
 
@@ -370,7 +370,7 @@ x_\tau=\sqrt{\bar\alpha_\tau}x_0+
 =\mathbb E\|\epsilon-\epsilon_\theta(x_\tau,\tau,\mathrm{cond})\|^2.
 ```
 
-여기서 `τ`는 **환경 시간 `t`와 다른 잡음 단계**다.
+여기서 $\tau$는 **환경 시간 $t$와 다른 잡음 단계**다.
 
 Flow matching의 단순한 직선 경로 예:
 
@@ -384,9 +384,9 @@ v_\theta(x_\tau,\tau,\mathrm{cond})-
 \right\|^2.
 ```
 
-추론은 잡음에서 출발해 `dx/dτ=v_\theta`를 적분하는 과정이다. 실제 방법은 경로, 가중치, parameterization, solver가 달라진다.
+추론은 잡음에서 출발해 $\frac{dx}{d\tau}=v_\theta$를 적분하는 과정이다. 실제 방법은 경로, 가중치, parameterization, solver가 달라진다.
 
-WAM에서는 `x`가 영상 latent와 행동을 함께 담을 수 있다. **둘을 같은 모델로 생성한다는 것과 실제 로봇 실행 결과가 정확히 일치한다는 것은 별도로 검증할 문제**다. [DDPM](https://arxiv.org/abs/2006.11239), [Flow Matching](https://arxiv.org/abs/2210.02747)
+WAM에서는 $x$가 영상 latent와 행동을 함께 담을 수 있다. **둘을 같은 모델로 생성한다는 것과 실제 로봇 실행 결과가 정확히 일치한다는 것은 별도로 검증할 문제**다. [DDPM](https://arxiv.org/abs/2006.11239), [Flow Matching](https://arxiv.org/abs/2210.02747)
 
 ### 4.6 행동 chunk, 실시간성, 폐루프
 
@@ -774,7 +774,7 @@ DreamerV3에서 중요한 차이는 **original Dreamer와 달리 actor 학습에
 
 **원문:** Schrittwieser et al., *Mastering Atari, Go, Chess and Shogi by Planning with a Learned Model* (2019). [논문](https://arxiv.org/abs/1911.08265)
 
-핵심 구성은 `h`(representation), `g`(dynamics), `f`(prediction)이다. 여기의 `h`는 논문의 함수 이름이며 이 노트의 이력 `h_t`와 다르다.
+핵심 구성은 $h$(representation), $g$(dynamics), $f$(prediction)이다. 여기의 $h$는 논문의 함수 이름이며 이 노트의 이력 $h_t$와 다르다.
 
 ~~~text
 과거 관측 → representation → latent
@@ -852,7 +852,7 @@ latent → prediction → 정책 prior + 가치
 \right\|.
 ```
 
-`sg`는 stop-gradient이고, target encoder는 EMA 등으로 갱신할 수 있다. 표현 붕괴를 막는 세부 설계가 중요하므로, 이 한 줄만 구현하면 V-JEPA가 재현된다고 생각하지 않는다. LeCun의 2022 문서는 성능 비교 논문이 아닌 연구 방향 제안이다.
+$\operatorname{sg}$는 stop-gradient이고, target encoder는 EMA 등으로 갱신할 수 있다. 표현 붕괴를 막는 세부 설계가 중요하므로, 이 한 줄만 구현하면 V-JEPA가 재현된다고 생각하지 않는다. LeCun의 2022 문서는 성능 비교 논문이 아닌 연구 방향 제안이다.
 
 ### 6.2 V-JEPA 2 — 행동 없는 사전학습에서 행동 조건부 계획으로
 
