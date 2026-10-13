@@ -8,6 +8,23 @@
 >
 > **읽는 기준:** 논문에 근거한 설명에는 원문 링크를 붙였다. ‘해석’, ‘한계’, ‘읽을 질문’은 이 노트의 학습용 정리이며, 별도 실험으로 입증한 주장이 아니다. 수식은 공통 구조를 이해하기 위한 단순화이며 각 논문의 정확한 구현과 구분한다. 최근 프리프린트의 결과는 저자가 보고한 해당 실험 범위에서 읽는다.
 
+## 이 노트의 읽기 규칙: 공통 예제를 끝까지 따라가기
+
+모든 개념을 **“탁자 위의 컵을 로봇 팔이 집어 오른쪽 선반으로 옮기기”**에 적용해 본다. 중간에 공이 움직이는 보조 예시도 사용한다. **아래 가상 로봇 실험은 논문에서 실제로 수행한 실험이 아니다.** World Models(2018)의 실제 시연은 CarRacing·VizDoom이다. 숫자·행동 예제는 표기를 이해하기 위한 가정이다.
+
+| 시각 | 실제 환경·관측 | 실행하는 행동 | 다음에 확인할 관측 |
+|---|---|---|---|
+| $t=0$ | $o_0$: 컵이 탁자에 있고 그리퍼는 멀리 있음 | $a_0$: 컵 위로 이동 | $o_1$: 컵 위에 도달했는가? |
+| $t=1$ | $o_1$: 그리퍼가 컵 위에 있음 | $a_1$: 내려가서 닫기 | $o_2$: 컵이 잡혔나, 미끄러졌나? |
+| $t=2$ | $o_2$: 컵이 잡혔거나 놓쳤음 | $a_2$: 컵 들어 올리기 | $o_3$: 컵이 함께 올라오는가? |
+| $t=3$ | $o_3$: 컵을 들고 있음 | $a_3$: 선반으로 이동해 놓기 | $o_4$: 컵이 목표 위치에 놓였나? |
+
+한 전이의 **기록 데이터**는 $(o_t,a_t,o_{t+1},r_t)$이다. 즉 **$a_t$는 $o_t$를 본 뒤 실행하며 그 결과를 $o_{t+1}$에서 관찰한다.** 보상 $r_t$는 해당 전이에 대응한다. 예를 들어 최종 성공 시 $+1$, 실패 시 $0$으로 가정할 수 있다.
+
+**이 문서에서 고정할 기호:** $s_t$는 실제 환경 상태(물체 위치·속도·마찰·접촉 등), $o_t$는 실제 카메라·센서 관측, $x_t$는 모델 내부에서 **학습해 추론한 잠재 상태**다. 실제 데이터에 $x_t$의 정답 레이블이 주어지는 것은 아니다. $g$는 목표(“컵을 선반에 놓아라”)다. 5.2절 VAE–MDN-RNN의 $z_t,h_t$와 5.3절 RSSM의 $x_t=(u_t,z_t)$는 **각기 다른 모델의 변수**이므로 반드시 구분한다.
+
+수식을 볼 때마다 **입력 → 예측할 target → 학습 loss → 실제 행동에 쓰이는 방식**을 확인한다. 3절은 기호, 4절은 학습 메커니즘, 5절은 초기 논문들의 서로 다른 행동 선택법, 6–7절은 영상·행동 생성으로의 확장을 설명한다.
+
 <a id="contents"></a>
 ## 목차
 
@@ -523,72 +540,97 @@ WAM에서는 $x$가 영상 latent와 행동을 함께 담을 수 있다. **둘�
 
 ### 5.2 World Models (Ha & Schmidhuber, 2018) — 시각, 기억, 제어의 분리
 
-**원문:** *World Models* (2018). [논문](https://arxiv.org/abs/1803.10122) · [저자 프로젝트/실험](https://worldmodels.github.io/)
+**원문:** *World Models* (2018). [논문](https://arxiv.org/abs/1803.10122) · [공식 프로젝트](https://worldmodels.github.io/)
 
-#### 문제의식
+#### 문제의식: 컵을 이해하는 일과 행동을 잘하는 일을 분리하자
 
-이미지에서 행동을 출력하는 end-to-end policy를 보상 신호만으로 훈련한다면, 정책 네트워크는 동시에 (1) 시각적 표현, (2) 시간에 따른 동역학, (3) 행동 선택을 익혀야 한다. 하지만 보상이 희소하거나 실제 상호작용이 비싸면 이러한 통합 학습이 비효율적일 수 있다.
+로봇 팔이 컵을 집으려면 **(1) 영상에서 컵과 그리퍼를 표현하고 (2) 과거 움직임을 기억해 다음 상태를 예측하며 (3) 보상을 얻는 행동을 결정**해야 한다. 이 모든 능력을 reward만으로 학습시키는 대신 시각 인코더 **V**, 동역학 메모리 **M**, 행동 선택기 **C**로 역할을 나누자는 아이디어다.
 
-**질문:** 관측의 압축과 미래 예측을 reward와 별도로 학습하고, 그 위에 아주 작은 controller만 올려도 좋은 행동을 찾을 수 있는가?
+> 아래 컵 예시는 **설명을 위해 구성한 가상 실험**이다. World Models 논문의 실제 제어 실험은 CarRacing과 VizDoom이다. 로봇 팔에서 실험했다고 이해해서는 안 된다.
 
-#### 방법론: V + M + C
+#### 먼저 기호와 실제 입력을 대응하자
 
-1. **Vision (V):** VAE를 이용해 RGB 이미지 $o_t$를 저차원 latent $z_t$로 압축한다.
-2. **Memory (M):** MDN-RNN은 $z_t$, 행동 $a_t$, 순환 은닉상태 $h_t$에서 다음 latent의 분포를 예측한다.
-3. **Controller (C):** $[z_t;h_t]$로부터 행동을 만드는 간단한 정책의 파라미터를 최적화한다.
+| 변수 | 컵 옮기기 예시에서 뜻 | 실제 데이터인지, 학습한 내부 표현인지 |
+|---|---|---|
+| $o_t$ | $t$에 찍힌 컵·그리퍼 RGB 영상 | 실제 센서 **입력** |
+| $a_t$ | 그리퍼 이동/닫기 명령 | Controller **출력**, 실행된 행동 |
+| $z_t$ | VAE가 $o_t$를 압축해 만든 벡터 | **학습한 시각 latent**; 좌표 라벨이 아님 |
+| $h_t$ | MDN-RNN의 hidden state | **학습한 과거 정보의 요약**; 물리 속도 라벨이 아님 |
+| $\hat z_{t+1}$ | M이 예측하는 다음 latent sample | 다음 관측 $o_{t+1}$의 VAE latent와 대응 |
+| $W_c,b_c$ | Controller 파라미터 | 누적 reward를 높이도록 최적화 |
 
-Vision의 변분 목적은 대표적으로 다음과 같다.
+**표기 주의:** World Models의 $z_t$는 **VAE가 단일 이미지에서 만든 latent**다. PlaNet의 $z_t$는 RSSM 내부의 **stochastic state**다. 둘을 동일한 모델로 읽어서는 안 된다. 또한 일부 논문은 실제 이미지를 $x_t$라 표기하지만, 이 노트에서는 이미지에 $o_t$를 예약하고 내부 전체 상태에 $x_t$를 사용한다.
+
+#### V: 이미지의 무엇을 학습하는가?
+
+카메라 영상 $o_1$에는 컵·그리퍼·배경이 보인다. VAE Encoder는 이를 $z_1$로 압축하고 Decoder로 같은 영상 $o_1$을 복원한다.
 
 ```math
 \mathcal L_V(o)
-=
--\mathbb E_{q_\phi(z\mid o)}\log p_\theta(o\mid z)
-+
-D_{\rm KL}\big(q_\phi(z\mid o)\,\Vert\,p(z)\big).
+=-\mathbb E_{q_\phi(z\mid o)}\log p_\theta(o\mid z)
++D_{\mathrm{KL}}(q_\phi(z\mid o)\Vert p(z)).
 ```
 
-Memory는 **Mixture Density Network**를 RNN에 결합한다. 하나의 Gaussian보다 다양한 가능한 미래를 표현하기 위해 mixture를 사용한다.
+- **입력과 target:** 이미지 $o_t$가 주어지고, **복원할 target도 $o_t$ 자체**다.
+- **학습되는 것:** Encoder/decoder와 압축 representation $z_t$.
+- **주의:** $z_t$의 첫 차원이 컵 좌표이고 다음 차원이 속도가 되도록 직접 감독하는 것은 아니다.
+
+#### M: 다음 순간에 무엇이 일어날까?
+
+$z_1$을 본 뒤 $a_1=$ “그리퍼를 닫기”를 실행한다고 하자. MDN-RNN은 현재 $z_1$, 동작 $a_1$, 기존 memory $h_1$으로 **다음 영상의 latent $z_2$에 대한 조건부 분포**를 예측한다.
 
 ```math
 p_\theta(z_{t+1}\mid z_t,a_t,h_t)
-=
-\sum_{k=1}^{K}
-\pi_{t,k}\,
-\mathcal N\!\left(z_{t+1};\mu_{t,k},\Sigma_{t,k}\right),
-\qquad \sum_k\pi_{t,k}=1.
+=\sum_{k=1}^K\pi_{t,k}
+\mathcal N(z_{t+1};\mu_{t,k},\Sigma_{t,k}),
+\qquad\sum_k\pi_{t,k}=1.
 ```
 
-RNN의 hidden state는 과거 관측·행동의 요약이고, mixture의 평균·분산·가중치는 네트워크가 출력한다. 컨트롤러는 예를 들어 다음과 같은 작은 선형 형태로 표현할 수 있다.
+컵이 잘 잡힐 수도 있고 미끄러질 수도 있어서 여러 미래가 가능하다. Mixture는 이런 다중 가능성을 표현할 수 있으나, **각 component가 '잡기 성공'과 '실패'라는 이름으로 감독되는 것은 아니다.**
+
+- **입력:** 현재 VAE latent $z_t$, 이미 실행한 action $a_t$, 과거 history $h_t$.
+- **Training target:** 실제 행동 뒤 얻은 **다음 센서 영상 $o_{t+1}$을 VAE로 encoding한 latent $z_{t+1}$**.
+- **Loss:** 해당 target latent의 MDN 예측분포에 대한 negative log-likelihood.
+- **$h_t$의 뜻:** 과거 정보에 관한 RNN hidden vector로, 정해진 물리 상태 좌표가 아니다.
+
+#### C: 그러면 어떤 행동을 할까?
 
 ```math
 a_t=W_c[z_t;h_t]+b_c.
 ```
 
-여기서 핵심은 **정책을 학습하기 위해 미래 영상을 매번 decode해야 하는 것은 아니다**라는 점이다. Dynamics를 예측하도록 훈련한 $h_t$가 현재 행동 선택에 유용한 feature가 된다. 논문에서는 controller를 backpropagation 기반 policy gradient가 아니라 **CMA-ES**로 최적화하였다. V, M, C는 역할별로 별도 훈련한다.
+컵 예제에서는 그리퍼 이동·닫기 명령을 출력한다고 생각하면 된다. **실제 CarRacing에서는 조향·가속·브레이크 행동**에 대응한다. 여기서 Controller는 “정답 action” 레이블에 대한 imitation loss를 학습하지 않는다. **환경에서 얻는 누적 reward를 높이도록 CMA-ES로 controller 파라미터를 최적화한다.**
 
-#### 'Training Inside of the Dream' 실험
+#### 같은 한 전이를 V → M → C로 읽기
 
-훈련된 MDN-RNN에서 $z_{t+1}$을 sampling하면 현실 게임을 실행하지 않고도 가상의 trajectory를 생성할 수 있다.
+1. **$o_0\to z_0$:** 컵이 보이는 실제 영상을 VAE가 압축한다.
+2. **$[z_0;h_0]\to a_0$:** Controller가 컵 쪽으로 이동하는 명령을 낸다.
+3. **$(z_0,a_0,h_0)\to p(z_1\mid\cdot)$:** M이 *이 행동의 다음 latent*를 예측한다.
+4. **실제 $o_1\to z_1$:** 실제로 행동한 뒤 촬영한 영상에서 얻은 latent가 M을 학습시키는 target이 된다. RNN memory도 시간에 따라 갱신된다.
+5. **반복:** 같은 방식으로 컵을 잡고 들어 올리는 action을 선택한다. 최종 task reward가 Controller의 optimization signal이다.
+
+즉 **V의 target은 이미지, M의 target은 다음 이미지의 VAE latent, C의 목표는 누적 reward**다. 같은 $o_t$를 다루지만 세 모듈이 *서로 다른 문제*를 학습한다.
+
+#### 'Training Inside of the Dream'
+
+학습한 M에서 $z_{t+1}$을 sample하면 실제 환경을 호출하지 않고도 가상의 미래를 이어갈 수 있다.
 
 ```math
-(z_t,h_t)\xrightarrow{\text{controller}}a_t
-\xrightarrow{\text{MDN-RNN}}\hat z_{t+1}
-\xrightarrow{\text{controller}}a_{t+1}\longrightarrow\cdots
+(z_t,h_t)\xrightarrow{\mathrm{Controller}}a_t
+\xrightarrow{\mathrm{MDN\text{-}RNN}}
+(\hat z_{t+1},\hat h_{t+1})
+\longrightarrow a_{t+1}\longrightarrow\cdots
 ```
 
-논문은 특히 VizDoom에서 이렇게 학습한 controller를 실제 환경으로 옮기는 실험을 했다. 단, 모델이 만든 '꿈'은 실제 환경의 정확한 복사본이 아니다. 제어기가 world model의 빈틈을 악용하는 **model exploitation**이 발생할 수 있다. MDN sampling의 temperature를 조절해 가상의 미래를 지나치게 결정론적이지 않게 만들고 controller의 견고성을 높이는 방법을 탐색했다.
+컵 예제로는 “실제로 컵을 잡지 않고도, 잡는 행동이 만든 미래 latent”를 시뮬레이션하는 셈이다. **논문에서는 VizDoom에서 dream training을 시도**했다. 하지만 model이 컵을 항상 잡힌 것으로 잘못 상상한다면 controller는 그 오류를 악용할 수 있다(model exploitation). 저자들은 sampling **temperature**가 꿈속 학습의 견고성에 미치는 영향을 탐구했다.
 
-#### 해결한 문제와 한계
+#### 무엇을 해결했고 무엇이 남았는가?
 
-- **해결:** 복잡한 visual encoder와 temporal dynamics를 직접 정책으로부터 분리할 수 있음을 입증했다. CarRacing에서 VAE latent만 사용할 때보다 MDN-RNN의 history 표현을 같이 사용하는 것이 크게 유리했다. 실제 환경 대신 learned simulator 안에서 controller를 훈련하는 가능성도 보였다.
-- **한계:** 제어기가 작고 진화 전략에 의존하므로 복잡한 정책으로의 확장이 자연스럽지 않다. dynamics model이 행동 선택의 목적에 맞는 표현을 배우는 것도 보장되지 않는다. 미래 행동 후보들을 매 순간 체계적으로 비교하는 online planning도 주된 방법이 아니다.
-- **논문의 실제 주장과 구별할 점:** '환경을 완전히 이해한 모델'이 아니라, 특정 환경에서 학습한 latent dynamics가 controller에 유용하다는 실증이다.
+- **해결:** VAE 영상 표현, MDN-RNN 기억·예측, 작은 controller를 역할별로 분리해 학습할 수 있음을 보여줬다. CarRacing에서는 $z_t$만 사용하는 경우보다 $h_t$를 함께 쓰는 경우가 유리했다.
+- **한계:** learned dynamics가 틀리면 가상 환경에서 높은 reward를 받는 행동이 현실에서 실패할 수 있다. 작고 단순한 controller와 CMA-ES가 복잡한 실제 로봇 전체에 곧바로 적합한 것은 아니다.
+- **다음 질문:** Controller를 한 번 훈련시키는 대신, **현재 컵 위치에서 여러 행동열을 latent로 시뮬레이션하고 직접 비교**할 수 있을까? → **PlaNet**.
 
-**읽을 질문**
-- VAE는 이미지 reconstruction을 잘하도록 학습된다. 그 latent가 반드시 제어에 필요한 정보를 보존할까?
-- $z_t$와 $h_t$가 갖는 정보는 어떻게 다른가?
-- 모델을 악용하는 행동은 왜 실제 환경에서 실패할 수 있는가?
-- Controller를 현재의 Diffusion Policy나 VLA로 바꾸려면 무엇이 추가되어야 할까?
+**이 절을 읽은 뒤 설명할 것:** V의 입력/target, M의 입력/target, C의 학습 목표를 컵 예제로 각각 한 문장씩 말해 보자.
 
 ---
 
