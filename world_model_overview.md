@@ -868,14 +868,6 @@ $u_t$를 고정하고 보면 chain rule로
 
 가 된다. **손실의 함수 이름에 $\phi$가 직접 등장하지 않더라도**, $z_t$가 $\phi$에 의존하므로 reconstruction gradient가 posterior encoder까지 역전파된다. Reward likelihood도 $x_t$를 거쳐 동일한 경로로 posterior에 gradient를 줄 수 있다. 전체 시퀀스에서는 과거 $z_{t-1}$가 $u_t$에 영향을 주는 **시간축의 추가 gradient 경로(BPTT)**도 존재한다.
 
-**아주 작은 scalar 예:** 단순화해서 encoder가 $z=\phi o$를 계산하고 decoder가 $\hat o=Wz$를 출력하며 $\mathcal L=(o-\hat o)^2/2$라고 하자. $o=1$이면 $\mathcal L=(1-W\phi)^2/2$이므로
-
-```math
-\frac{\partial\mathcal L}{\partial\phi}
-=-W(1-W\phi)
-```
-
-이다. 손실이 decoder의 출력에서 계산되어도 encoder 파라미터 $\phi$의 gradient가 **0이 아닌 것**을 직접 볼 수 있다. 이는 원논문 고유의 구현 식이 아니라 gradient 연결을 설명하기 위한 **장난감 예시**다.
 
 마지막으로 KL 항 $D_{\rm KL}(q_\phi\Vert p_{\theta_{\rm prior}})$은 두 분포의 파라미터에 직접 의존하므로 **$\phi$와 $\theta_{\rm prior}$ 양쪽**으로 gradient가 간다. 따라서 **observation/reward likelihood는 decoder·posterior를, KL은 prior·posterior를 주로 학습**시키며 recurrent dynamics도 전체 시퀀스의 gradient를 받는다. **Prior와 decoder가 같은 $\theta$로 표기되었다는 것과 같은 weight를 공유한다는 것은 전혀 다른 주장**이다.
 
