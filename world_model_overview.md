@@ -1033,6 +1033,15 @@ CEM은 이 prior와 reward predictor를 이용하지만, **prior는 CEM을 위�
 
 **문제의식:** PlaNet은 매 단계마다 후보 action sequence를 대량으로 최적화해야 한다. 이미 differentiable한 world model이 있다면 **그 안에서 미래를 상상해 actor와 critic을 학습**하고, 실제 행동 시에는 policy만 한 번 호출하면 되지 않을까?
 
+**"학습한 World Model 위에서 A2C를 돌린다"는 해석에서 맞는 부분과 다른 부분**
+
+- **맞는 직관:** 실제 환경의 데이터로 RSSM을 학습한 뒤, 그 모델이 만든 imagined latent trajectories와 predicted reward를 이용해 **Actor $\pi_\psi$와 Critic $V_\xi$**을 학습한다. 따라서 학습된 world model 내부에서 **model-based actor–critic RL**을 한다고 설명할 수 있다.
+- **전체 훈련에서 World Model을 영구 freeze하지는 않는다:** 처음 random episode로 시작하고, replay buffer에서 **world-model 학습 → 현재 모델 안에서 actor/critic 학습 → actor로 실제 환경 데이터를 추가 수집**하는 주기를 반복한다. 즉 시간이 지나 새 데이터가 들어오면 RSSM의 파라미터 $\theta$도 다시 학습된다([원논문 Algorithm 1](https://arxiv.org/abs/1912.01603)).
+- **Actor/Critic 업데이트 중에만 World Model 파라미터를 고정한다:** 이 단계의 gradient update 대상은 actor의 $\psi$ 및 critic의 $\xi$다. **고정한다는 것은 $\theta$를 optimizer로 업데이트하지 않는다는 뜻**이지, world model의 연산을 거쳐 actor까지 **gradient가 역전파되는 것까지 끊는다는 뜻이 아니다**.
+- **일반적인 A2C와는 다르다:** 표준 A2C의 actor는 일반적으로 $\nabla_\psi\log\pi_\psi(a_t\mid x_t)\,\hat A_t$ 형태의 **likelihood-ratio policy gradient**를 사용한다. Original Dreamer는 reparameterized actor action과 differentiable RSSM dynamics를 통과해 **imagined return/value의 analytic (pathwise) gradient**를 actor로 전파한다. 둘 다 actor–critic이지만 **actor gradient estimator가 다르다**.
+
+따라서 가장 정확한 요약은 **"학습된 World Model을 반복 개선하면서, 각 behavior-learning 단계에서는 그 모델을 고정된 미분 가능 시뮬레이터로 이용해 Actor–Critic을 최적화한다"**이다.
+
 **World model:** PlaNet의 RSSM을 사용한다. 실제 데이터를 담은 replay buffer에서 posterior state를 얻고, 그 지점 이후에는 learned dynamics prior로 imagined trajectory를 생성한다. 여기의 $x_t$는 실제 환경의 $s_t$가 아니라 모델 내부의 RSSM 상태다.
 
 ```math
@@ -1666,6 +1675,7 @@ WAM은 세계 예측과 실행 가능한 행동 선택의 연결을 핵심으로
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-10-14 | Dreamer 5.4.1절에 world model 학습·행동 학습·데이터 수집의 반복 구조, actor/critic 학습 중 일시적 world-model 고정, A2C와 다른 analytic/pathwise actor gradient를 구분 |
 | 2026-10-14 | 5.2절 World Models의 간단한 복습 문장을 **5.3절과 같은 6문항 서술형 이해도 점검**으로 교체: V/M/C의 입출력·학습 target, MDN-RNN 분포와 memory, 단계별 훈련, CarRacing reward, VizDoom dream training, 행동 데이터와 환경 범용성 (정답 미포함) |
 | 2026-10-14 | PlaNet 5.3절의 ‘읽을 질문’을 **서술형 이해도 점검 6문항**으로 변경: RSSM 상태, prior/posterior, ELBO·gradient, H-step rollout·reward, CEM/MPC, latent overshooting 심화 (해설 미포함) |
 | 2026-10-14 | 5.3절에 prior가 **미래 관측이 없는 H-step CEM rollout에 필요한 이유** 및 posterior(실측 state inference)와 prior(관측 없는 dynamics), reward predictor의 역할 구분을 추가 |
