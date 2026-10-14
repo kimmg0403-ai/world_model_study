@@ -737,7 +737,18 @@ p_\theta(z_{t+1}\mid z_t,a_t,h_t).
 - **한계:** learned dynamics가 틀리면 가상 환경에서 높은 reward를 받는 행동이 현실에서 실패할 수 있다. 작고 단순한 controller와 CMA-ES가 복잡한 실제 로봇 전체에 곧바로 적합한 것은 아니다.
 - **다음 질문:** Controller를 한 번 훈련시키는 대신, **현재 컵 위치에서 여러 행동열을 latent로 시뮬레이션하고 직접 비교**할 수 있을까? → **PlaNet**.
 
-**이 절을 읽은 뒤 설명할 것:** V의 입력/target, M의 입력/target, C의 학습 목표를 컵 예제로 각각 한 문장씩 말해 보자. 추가로 (1) 왜 세 모듈은 *함께 작동하지만 end-to-end로 공동 업데이트하지 않는지*, (2) MDN-RNN은 왜 다음 latent의 *분포*를 출력하는지, (3) $h_t$는 매 timestep 어떻게 갱신되는지, (4) dream training의 reward는 어디서 얻는지를 구분해 보자.
+#### 이해도 점검 — 서술형 문제
+
+> **정답 없이 스스로 설명해 보는 문제다.** 앞의 컵 옮기기 예시는 이해를 위한 가상 사례이며, 논문의 실제 실험은 CarRacing과 VizDoom이다. 1~5번은 핵심 내용, 6번은 심화 문제다.
+
+1. **V·M·C의 역할과 학습 target:** 로봇 팔이 컵을 향해 이동하는 한 timestep을 예로 들어 V, M, C 각각의 **입력·출력·학습 목표**를 설명하라. 특히 V의 reconstruction target과 M의 next-latent target, C의 누적 reward 목표가 어떻게 다른지 구분하라.
+2. **MDN-RNN의 확률적 미래와 memory:** 현재 $z_t$, action $a_t$, RNN hidden state $h_t$는 M에서 어떤 역할을 하는가? $h_t$가 시간에 따라 어떻게 갱신되는지, M이 왜 하나의 $\hat z_{t+1}$ 대신 **Gaussian mixture 분포**를 예측하는지 컵을 잡거나 놓치는 예시로 설명하라.
+3. **세 모듈의 분리 학습:** World Models에서는 V, M, C를 어떤 **순서와 loss 또는 최적화 목표**로 학습하는가? C를 학습할 때 V와 M의 파라미터는 어떻게 취급하는가? '함께 작동한다'와 'end-to-end로 공동 업데이트한다'는 말의 차이를 설명하라.
+4. **Controller와 실제 환경의 reward:** CarRacing에서 $C$는 $z_t,h_t$를 바탕으로 어떤 $a_t$를 내보내며, 그 행동에 대한 reward는 **누가, 어떻게 제공**하는가? $C$의 CMA-ES 최적화가 정답 action label을 이용하는 supervised learning과 어떻게 다른지 설명하라.
+5. **Training Inside the Dream:** VizDoom에서는 실제 게임을 매번 실행하지 않고도 어떻게 $C$를 학습할 수 있는가? M이 생성하거나 예측하는 정보, 가상 episode의 **생존 시간 및 종료 신호**, RGB decoder의 필요 여부를 포함해 CarRacing의 controller 학습과 비교하라.
+6. **심화 — 데이터와 범용성의 한계:** 실제 로봇과 Minecraft 같은 게임에 World Models를 적용한다면 각각 $o_t$와 $a_t$는 무엇이며, **영상만 있고 action 기록이 없을 때** M 학습이 어려운 이유는 무엇인가? 원논문이 CarRacing·VizDoom을 하나의 범용 모델로 공동 훈련했는지 여부도 구분하라.
+
+**자가 확인 기준:** 각 문항에서 **실제 관측·행동 기록 → latent와 RNN memory → 예측 대상 → 학습 신호/행동 선택**을 구분하고, CarRacing·VizDoom의 실제 실험과 설명용 로봇 예시를 혼동하지 않는지 확인하자.
 
 ---
 
@@ -1655,6 +1666,7 @@ WAM은 세계 예측과 실행 가능한 행동 선택의 연결을 핵심으로
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-10-14 | 5.2절 World Models의 간단한 복습 문장을 **5.3절과 같은 6문항 서술형 이해도 점검**으로 교체: V/M/C의 입출력·학습 target, MDN-RNN 분포와 memory, 단계별 훈련, CarRacing reward, VizDoom dream training, 행동 데이터와 환경 범용성 (정답 미포함) |
 | 2026-10-14 | PlaNet 5.3절의 ‘읽을 질문’을 **서술형 이해도 점검 6문항**으로 변경: RSSM 상태, prior/posterior, ELBO·gradient, H-step rollout·reward, CEM/MPC, latent overshooting 심화 (해설 미포함) |
 | 2026-10-14 | 5.3절에 prior가 **미래 관측이 없는 H-step CEM rollout에 필요한 이유** 및 posterior(실측 state inference)와 prior(관측 없는 dynamics), reward predictor의 역할 구분을 추가 |
 | 2026-10-14 | 5.3절 PlaNet의 현재 관측 posterior / 가상 미래 prior / **CEM의 행동 생성·후보 평가·MPC 재계획**을 구분하고, RGB decoder 없이 reward head로 계획한다는 로봇 팔 예시 추가 |
