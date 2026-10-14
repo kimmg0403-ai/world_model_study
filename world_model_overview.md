@@ -957,6 +957,34 @@ A^\star\approx\arg\max_A
 
 World model의 미래는 **영상 decoder 없이** latent와 reward head만으로 평가한다. PlaNet은 Actor/Critic을 학습해 policy로 즉시 행동하는 방식이 아니다.
 
+#### 중요한 구분: RSSM이 미래를 만들지만, 행동을 고르는 것은 CEM이다
+
+**학습 중:** 기록된 실제 영상 $o_t$를 사용해 posterior $q_\phi(z_t\mid u_t,o_t)$에서 $z_t$를 추론하고, $x_t=(u_t,z_t)$로 **관측 reconstruction·보상 예측·prior–posterior KL**의 loss를 계산한다. 이때 $\theta,\phi$는 gradient로 업데이트한다.
+
+**실제 실행 시 현재 시점:** 카메라에서 새로 얻은 실제 $o_t$를 보았으므로 현재 상태는 여전히 **posterior** $q_\phi(z_t\mid u_t,o_t)$로 추론한다. "Inference에서는 posterior를 전혀 쓰지 않는다"는 해석은 틀리다.
+
+**CEM에서 가상 미래를 평가할 때:** 길이 $H$의 행동 후보열 $A^{(i)}=(a_t^{(i)},\ldots,a_{t+H-1}^{(i)})$을 *CEM이 샘플링*한다. 각 행동열에 대해 현재 posterior state $x_t$에서 출발해
+
+```math
+\begin{aligned}
+u_{t+k+1}^{(i)}
+&=f_\theta(u_{t+k}^{(i)},z_{t+k}^{(i)},a_{t+k}^{(i)}),\\
+z_{t+k+1}^{(i)}
+&\sim p_\theta(z_{t+k+1}\mid u_{t+k+1}^{(i)}),\\
+\hat r_{t+k+1}^{(i)}
+&=g_{\theta_{\rm reward}}(u_{t+k+1}^{(i)},z_{t+k+1}^{(i)})
+\end{aligned}
+```
+
+처럼 다음 **latent와 reward만** 예측한다(식의 인덱스는 전이 후 보상 관례로 통일한 **개념적 표현**이다). 미래 실제 관측 $o_{t+k+1}$은 없으므로 prior를 사용한다. Decoder로 미래 RGB 이미지 $\hat o_{t+k+1}$를 매번 복원할 필요는 없다.
+
+**CEM의 선택 과정:** 각 후보열의 예상 보상을 합산해 점수를 계산한 뒤, 점수가 높은 *elite* 행동열을 중심으로 **행동열 샘플링 분포**의 평균·분산을 반복 갱신한다. 최종적으로 선정한 행동열의 **첫 행동 $a_t$만 실제 환경에 실행**하고, 다음 카메라 영상 $o_{t+1}$을 얻어 posterior를 다시 계산한 뒤 처음부터 계획한다. **CEM은 RSSM의 prior/posterior나 별도 actor가 action을 직접 예측하는 모듈이 아니다.** Planning 중 바뀌는 것은 우선 **후보 action 분포**이며, 매번 $\theta,\phi$를 업데이트하는 것은 아니다. 새 실환경 데이터를 모으면 별도 world-model training 단계에서 다시 학습할 수 있다.
+
+**컵 옮기기 예시:** 현재 그리퍼가 컵 위에 있다. CEM은 '바로 닫기→들기', '오른쪽 2cm 이동→닫기→들기', '조금 내려가기→닫기→들기' 등의 후보를 만들고, RSSM prior와 reward predictor로 **컵이 실제로 잡힐 가능성을 반영한 미래 latent의 예상 보상**을 비교한다. 가장 좋은 행동열이 두 번째라면 **지금은 오른쪽 2cm 이동만 실행**한다. 실제 $o_{t+1}$에 그리퍼가 예상과 다른 곳에 있으면 posterior가 그 차이를 반영한다.
+
+따라서 **World Models(2018)의 작은 Controller C는 직접 행동을 출력하지만, PlaNet의 행동 선택은 CEM/MPC라는 온라인 최적화**가 담당한다. 이것이 PlaNet과 이후 Dreamer의 학습된 actor를 비교할 때 핵심 차이다.
+
+
 #### 해결한 문제와 한계
 
 - **해결:** 원본 영상에서 학습한 stochastic dynamics를 실제 online control에 활용했다. Latent planning으로 image generation 비용 없이 후보 행동의 미래를 비교한다. 픽셀 기반 model-free RL보다 높은 sample efficiency를 보고했다.
@@ -1616,6 +1644,7 @@ WAM은 세계 예측과 실행 가능한 행동 선택의 연결을 핵심으로
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-10-14 | 5.3절 PlaNet의 현재 관측 posterior / 가상 미래 prior / **CEM의 행동 생성·후보 평가·MPC 재계획**을 구분하고, RGB decoder 없이 reward head로 계획한다는 로봇 팔 예시 추가 |
 | 2026-10-14 | GitHub 수식에서 금지된 연산자 이름 지정 매크로 11곳을 허용되는 로마체 표기로 교체(`diag`, `sg`, `symlog`, `symexp`, `sign`). 수식 내용은 유지하고 렌더링 호환성 개선 |
 | 2026-10-14 | 5.3절의 $p_\theta$ 혼란 해소: prior/RNN/observation decoder/reward head 파라미터를 분리 표기하고, $q_\phi$가 reconstruction·reward NLL에서 **latent sampling 및 chain rule**로 gradient를 받는 과정을 계산 그래프와 scalar 예제로 설명 |
 | 2026-10-14 | PlaNet 5.3절에 실제 trajectory 데이터, RSSM prior/posterior Gaussian parameterization, posterior sampling·reparameterization·ELBO backprop 절차, $θ/φ$별 gradient·NLL/KL 역할 및 prior/posterior 오차 보정 예시를 추가 |
