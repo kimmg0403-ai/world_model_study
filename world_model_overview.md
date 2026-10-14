@@ -890,9 +890,9 @@ $u_t$를 고정하고 보면 chain rule로
 ```math
 \begin{aligned}
 p_\theta(z_t\mid u_t)
-&=\mathcal N\!\big(z_t;\mu_\theta^{p}(u_t),\operatorname{diag}[(\sigma_\theta^{p}(u_t))^2]\big),\\
+&=\mathcal N\!\big(z_t;\mu_\theta^{p}(u_t),\mathrm{diag}[(\sigma_\theta^{p}(u_t))^2]\big),\\
 q_\phi(z_t\mid u_t,o_t)
-&=\mathcal N\!\big(z_t;\mu_\phi^{q}(u_t,o_t),\operatorname{diag}[(\sigma_\phi^{q}(u_t,o_t))^2]\big).
+&=\mathcal N\!\big(z_t;\mu_\phi^{q}(u_t,o_t),\mathrm{diag}[(\sigma_\phi^{q}(u_t,o_t))^2]\big).
 \end{aligned}
 ```
 
@@ -1052,7 +1052,7 @@ Critic은 stop-gradient된 $\lambda$-return을 regression target으로 학습한
 
 ```math
 \mathcal L_V=
-\mathbb E\left[(V_\xi(x_t)-\operatorname{sg}(G_t^\lambda))^2\right].
+\mathbb E\left[(V_\xi(x_t)-\mathrm{sg}(G_t^\lambda))^2\right].
 ```
 
 **해결:** 온라인 CEM을 매번 반복하는 대신 상상 속에서 정책과 가치함수를 훈련하고 실제 실행 시 actor를 호출할 수 있게 했다. 다수의 visual continuous-control task에서 sample efficiency와 수행 성능의 개선을 보고했다.
@@ -1098,10 +1098,10 @@ Prediction loss와 dynamics/representation KL loss를 나누고, 서로 다른 s
 \begin{aligned}
 \mathcal L_{\rm dyn}
 &=\max\!\left(1,\,
-D_{\rm KL}(\operatorname{sg}(q_\phi)\Vert p_\theta)\right),\\
+D_{\rm KL}(\mathrm{sg}(q_\phi)\Vert p_\theta)\right),\\
 \mathcal L_{\rm rep}
 &=\max\!\left(1,\,
-D_{\rm KL}(q_\phi\Vert\operatorname{sg}(p_\theta))\right).
+D_{\rm KL}(q_\phi\Vert\mathrm{sg}(p_\theta))\right).
 \end{aligned}
 ```
 
@@ -1110,10 +1110,10 @@ D_{\rm KL}(q_\phi\Vert\operatorname{sg}(p_\theta))\right).
 **주요 방법 ②: Symlog 및 distributional prediction.**
 
 ```math
-\operatorname{symlog}(x)
-=\operatorname{sign}(x)\log(1+|x|),\qquad
-\operatorname{symexp}(y)
-=\operatorname{sign}(y)(e^{|y|}-1).
+\mathrm{symlog}(x)
+=\mathrm{sign}(x)\log(1+|x|),\qquad
+\mathrm{symexp}(y)
+=\mathrm{sign}(y)(e^{|y|}-1).
 ```
 
 큰 크기의 값을 압축해 환경마다 다른 수치 규모에 덜 민감하게 한다. Reward와 value에는 연속 target을 인접한 두 bin에 분배한 **two-hot categorical prediction**을 사용한다.
@@ -1128,7 +1128,7 @@ DreamerV3에서 중요한 차이는 **original Dreamer와 달리 actor 학습에
 \mathcal L_\pi
 =-
 \mathbb E\left[
-\frac{\operatorname{sg}(G_t^\lambda-V_\xi(x_t))}
+\frac{\mathrm{sg}(G_t^\lambda-V_\xi(x_t))}
 {\max(1,S)}
 \log\pi_\psi(a_t\mid x_t)
 +\eta\mathcal H(\pi_\psi(\cdot\mid x_t))
@@ -1256,7 +1256,7 @@ latent → prediction → 정책 prior + 가치
 \right\|.
 ```
 
-$\operatorname{sg}$는 stop-gradient이고, target encoder는 EMA 등으로 갱신할 수 있다. 표현 붕괴를 막는 세부 설계가 중요하므로, 이 한 줄만 구현하면 V-JEPA가 재현된다고 생각하지 않는다. LeCun의 2022 문서는 성능 비교 논문이 아닌 연구 방향 제안이다.
+$\mathrm{sg}$는 stop-gradient이고, target encoder는 EMA 등으로 갱신할 수 있다. 표현 붕괴를 막는 세부 설계가 중요하므로, 이 한 줄만 구현하면 V-JEPA가 재현된다고 생각하지 않는다. LeCun의 2022 문서는 성능 비교 논문이 아닌 연구 방향 제안이다.
 
 ### 6.2 V-JEPA 2 — 행동 없는 사전학습에서 행동 조건부 계획으로
 
@@ -1624,6 +1624,7 @@ WAM은 세계 예측과 실행 가능한 행동 선택의 연결을 핵심으로
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-10-14 | GitHub MathJax에서 금지된 `\\operatorname` 매크로 11곳을 `\\mathrm`로 교체(공분산 `diag`, stop-gradient `sg`, `symlog`·`symexp`·`sign`). 수식 표현은 유지하고 렌더링 호환성 개선 |
 | 2026-10-14 | 5.3절의 $p_\theta$ 혼란 해소: prior/RNN/observation decoder/reward head 파라미터를 분리 표기하고, $q_\phi$가 reconstruction·reward NLL에서 **latent sampling 및 chain rule**로 gradient를 받는 과정을 계산 그래프와 scalar 예제로 설명 |
 | 2026-10-14 | PlaNet 5.3절에 실제 trajectory 데이터, RSSM prior/posterior Gaussian parameterization, posterior sampling·reparameterization·ELBO backprop 절차, $θ/φ$별 gradient·NLL/KL 역할 및 prior/posterior 오차 보정 예시를 추가 |
 | 2026-10-14 | 5.3절 PlaNet의 **prior–posterior 업데이트 흐름**을 3 pixel 예측/1 pixel 실제 관측 예시로 설명하고, World Models MDN-RNN과 RSSM의 공통점·차이 및 deterministic/stochastic의 의미를 명확화 |
