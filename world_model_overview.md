@@ -995,11 +995,18 @@ CEM은 이 prior와 reward predictor를 이용하지만, **prior는 CEM을 위�
 - **한계:** 환경 step마다 CEM을 반복하므로 inference 비용이 크다. 짧은 planning horizon 밖의 장기 reward를 놓칠 수 있다. Horizon을 무작정 늘리면 model error와 비용이 증가한다.
 - **Dreamer로 이어지는 핵심 질문:** 이러한 반복적인 online optimization의 결과를 **상상한 trajectory로부터 미리 policy에 학습시킬 수 없을까?**
 
-**읽을 질문**
-- RSSM posterior가 필요한 순간과 prior가 필요한 순간은 정확히 언제인가?
-- Latent overshooting은 왜 decoded image loss를 추가하는 방법보다 비용 면에서 유리한가?
-- CEM에서 후보 action의 수·horizon·iteration 수를 키우면 무엇이 늘고 무엇이 악화되는가?
-- MPC가 첫 번째 action만 실행하는 이유는 무엇인가?
+#### 이해도 점검 — 서술형 문제
+
+> **정답 없이 스스로 설명해 보는 문제다.** 앞의 컵 옮기기 예시를 활용해도 좋다. 1~5번은 핵심 내용, 6번은 심화 문제다.
+
+1. **RSSM의 상태 표현:** PlaNet의 $x_t=(u_t,z_t)$에서 $u_t$와 $z_t$는 각각 어떤 역할을 하는가? $u_t$가 deterministic이라는 사실이 실제 환경의 상태를 확실히 안다는 뜻인지도 설명하라.
+2. **Prior와 posterior의 차이:** 실제 카메라 영상 $o_t$를 새로 받은 순간과, 아직 영상이 없는 미래 $t+1,\ldots,t+H$를 시뮬레이션하는 순간에는 각각 어떤 분포를 사용하는가? 그 이유를 설명하라.
+3. **RSSM 학습:** 학습 데이터에 어떤 정보 $(o_t,a_t,r_t)$가 들어가고, 관측 reconstruction loss·reward prediction loss·prior–posterior KL이 각각 무엇을 학습시키는가? 특히 decoder의 likelihood가 $p$로 표기되어 있어도 posterior $q_\phi$에 gradient가 전달되는 이유는 무엇인가?
+4. **관측 없는 미래 예측:** CEM이 길이 $H$의 후보 행동열을 평가한다고 하자. RSSM prior와 reward predictor로 후보별 reward를 계산하는 과정을 설명하고, 이때 왜 실제 미래 영상을 촬영하거나 RGB decoder로 복원할 필요가 없는지 설명하라.
+5. **CEM과 MPC:** PlaNet에서 실제 action $a_t$는 누가 결정하는가? 여러 후보 행동열 중 좋은 것을 선택하는 과정과, 최적 행동열의 첫 action만 실행한 뒤 다시 planning하는 이유를 설명하라.
+6. **심화 — Latent overshooting:** One-step prior–posterior KL이 작더라도 여러 step의 rollout이 부정확할 수 있는 이유는 무엇인가? PlaNet의 latent overshooting은 어떤 예측을 어떤 분포와 비교해 이 문제를 보완하려 하는가?
+
+**자가 확인 기준:** 각 문항에 대해 **입력 → 계산/예측 → 사용되는 관측·행동·보상 → 목적**을 구별하여 설명할 수 있는지 확인하자.
 
 ---
 
@@ -1648,6 +1655,7 @@ WAM은 세계 예측과 실행 가능한 행동 선택의 연결을 핵심으로
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-10-14 | PlaNet 5.3절의 ‘읽을 질문’을 **서술형 이해도 점검 6문항**으로 변경: RSSM 상태, prior/posterior, ELBO·gradient, H-step rollout·reward, CEM/MPC, latent overshooting 심화 (해설 미포함) |
 | 2026-10-14 | 5.3절에 prior가 **미래 관측이 없는 H-step CEM rollout에 필요한 이유** 및 posterior(실측 state inference)와 prior(관측 없는 dynamics), reward predictor의 역할 구분을 추가 |
 | 2026-10-14 | 5.3절 PlaNet의 현재 관측 posterior / 가상 미래 prior / **CEM의 행동 생성·후보 평가·MPC 재계획**을 구분하고, RGB decoder 없이 reward head로 계획한다는 로봇 팔 예시 추가 |
 | 2026-10-14 | GitHub 수식에서 금지된 연산자 이름 지정 매크로 11곳을 허용되는 로마체 표기로 교체(`diag`, `sg`, `symlog`, `symexp`, `sign`). 수식 내용은 유지하고 렌더링 호환성 개선 |
