@@ -699,6 +699,38 @@ a_t=W_c[z_t;h_t]+b_c.
 
 반면 CarRacing의 Controller 학습은 실제 게임 환경에서 주어진 reward를 기반으로 한다. 두 경우 모두 **V와 M은 고정하고 C만 CMA-ES로 최적화**한다. 하지만 가상 모델이 컵을 항상 잡힌 것으로 잘못 상상한다면 controller는 그 오류를 악용할 수 있다(model exploitation). 저자들은 미래 latent sampling의 **temperature**가 dream training의 견고성에 미치는 영향을 탐구했다.
 
+#### 학습 데이터의 출처: 실제 로봇·게임·서로 다른 환경도 가능한가?
+
+**$a_t$는 환경에 실제로 보낸 control input**을 뜻한다. 다음처럼 해석할 수 있다.
+
+| 환경 | $o_t$의 예 | $a_t$의 예 | 주의할 점 |
+|---|---|---|---|
+| 실제 로봇 | 카메라 영상, 관절 센서 | 그리퍼 닫기, 관절 목표 위치 | **명령한 $a_t$**와 실제로 움직인 관절 위치는 다를 수 있음 |
+| CarRacing | 게임 화면 | 조향, 가속, 브레이크 | 세 종류의 **연속 행동** |
+| VizDoom Take Cover | 게임 화면 | 왼쪽 이동, 정지, 오른쪽 이동 | 게임에서 정의한 **이산 행동**을 논문 구현의 controller 출력에 매핑 |
+| Minecraft (가상 적용 예시) | 게임 화면 | 이동·점프·공격·시점 회전 등의 게임 입력 | **World Models(2018)의 실제 실험 환경은 아님** |
+
+V는 frame $o_t$만으로도 reconstruction을 학습할 수 있지만, **원래의 action-conditioned M을 학습하려면** 각 frame의 변화와 맞물린 $a_t$의 기록이 필요하다.
+
+```math
+\underbrace{(o_t,a_t,o_{t+1})}_{\text{실제로 기록한 한 전이}}
+\quad\longrightarrow\quad
+\big(z_t,a_t,z_{t+1}\big)
+\quad\longrightarrow\quad
+p_\theta(z_{t+1}\mid z_t,a_t,h_t).
+```
+
+예컨대 녹화된 Minecraft 화면과 **그때 누른 W 키 및 마우스 입력 로그**가 동기화되어 있으면 행동을 조건으로 다음 frame latent를 예측하도록 훈련할 수 있다. **게임 영상만 있고 입력 로그가 없다면** V 학습은 가능해도 위와 같은 M의 행동 조건부 학습을 그대로 적용하기는 어렵다. 행동을 추정하거나 action-free 모델로 바꾸는 것은 별도의 설계 문제다.
+
+**원논문의 실험은 환경별로 따로 훈련했다.** CarRacing과 VizDoom은 동일한 V–M–C라는 *구성 방식*을 공유하지만, 두 환경의 데이터를 섞어 하나의 VAE·MDN-RNN·Controller를 공동 훈련하지 않았다.
+
+- **CarRacing-v0:** 무작위 정책으로 **10,000 rollout**을 수집해 V/M을 학습했다. VAE latent는 **32차원**, 행동은 **조향·가속·브레이크**다. C는 **실제 게임 reward**로 최적화했다.
+- **VizDoom Take Cover:** 별도 데이터를 수집해 V/M을 훈련했다. VAE latent는 **64차원**, M은 다음 latent 외에 **죽음/종료 여부**도 예측한다. C는 학습된 **DoomRNN 가상 환경**에서 오래 살아남도록 최적화하고 실제 VizDoom으로 옮겨 평가했다.
+
+이는 [저자들의 실험 설명](https://worldmodels.github.io/)과 해당 페이지의 **Car Racing Procedure**, **VizDoom Procedure**, **Appendix**에 명시되어 있다.
+
+**범용 모델로 확장한다면?** 여러 환경을 섞어 V/M을 학습하는 연구 방향은 원리적으로 가능하다. 그러나 $a_t$의 차원·단위·의미(차 조향 vs 키보드 입력 vs 로봇 관절), 관측의 모양·통계, reward, 종료 조건이 다르다. 따라서 **환경 구분 조건(conditioning), 통일된 행동 표현 또는 환경별 action head, multi-task policy** 등을 설계해야 하며, 단순히 데이터셋을 합친다고 하나의 C가 모두 제어하는 것은 아니다. 이러한 범용 다중 환경 학습은 **2018년 논문의 실험 결과가 아니라 후속 확장 가능성에 대한 해석**이다.
+
 #### 무엇을 해결했고 무엇이 남았는가?
 
 - **해결:** VAE 영상 표현, MDN-RNN 기억·예측, 작은 controller를 역할별로 분리해 학습할 수 있음을 보여줬다. CarRacing에서는 $z_t$만 사용하는 경우보다 $h_t$를 함께 쓰는 경우가 유리했다.
@@ -1475,6 +1507,7 @@ WAM은 세계 예측과 실행 가능한 행동 선택의 연결을 핵심으로
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-10-14 | 5.2절에 로봇·게임별 $o_t,a_t$ 대응, action 로그의 필요성, CarRacing/VizDoom의 **환경별 독립 훈련**과 다중 환경 범용 모델의 차이를 원논문에 근거해 추가 |
 | 2026-10-13 | 5.2절 World Models의 V·M·C **순차·분리 학습**, MDN의 조건부 **미래 latent 분포 학습**, RNN memory $h_t$의 시점별 갱신 및 실제 환경/dream 환경의 Controller reward 획득 방식을 보강 |
 | 2026-10-13 | 전 절을 컵 옮기기 공통 예제로 다시 연결: 학습 데이터·기호 대응·모델별 prediction target·action 결정 과정·설명용 수치 및 실제 논문 실험과의 구별 보강 |
 | 2026-10-13 | 4절 도입부에 학습 데이터와 예측 대상, 공 밀기 예시, RSSM → MPC → Dreamer → 생성·실시간 제어 흐름을 간결하게 추가 |
