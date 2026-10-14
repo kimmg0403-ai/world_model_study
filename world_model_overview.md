@@ -830,6 +830,52 @@ p_\theta(z_t\mid u_t)\right).
 
 학습에서는 관측으로 posterior 상태를 추정하지만, 미래 rollout 동안에는 새로운 관측이 없으므로 prior로 샘플링한다.
 
+
+#### Prior와 posterior의 파라미터는 실제로 어떻게 업데이트되는가?
+
+**State inference(이미 학습된 network를 이용해 $z_t$를 구하는 것)와 parameter learning($\theta,\phi$를 gradient descent로 변경하는 것)은 다른 과정이다.** 지금까지 설명한 'prior가 먼저 예측하고 관측이 들어오면 posterior가 보정한다'는 inference의 한 timestep이며, 실제 학습에서는 이 연산을 **여러 timestep에 대해 펼치고 ELBO loss를 역전파**한다.
+
+**학습 데이터와 target:** 실제/시뮬레이션 환경에서 $(o_t,a_t,r_t)$의 연속 sequence를 모은다. 처음에는 random seed episode를 수집하고, 이후에는 **학습된 모델로 planning하며 새 episode를 추가**한다. Replay dataset에서 짧은 trajectory chunk를 뽑아 학습한다([PlaNet Algorithm 1](https://proceedings.mlr.press/v97/hafner19a/hafner19a.pdf)). 실제 카메라 영상 $o_t$, 행동 $a_t$, 보상 $r_t$는 주어지지만 **정답 RSSM latent $z_t$나 $u_t$는 주어지지 않는다.**
+
+네트워크는 Gaussian 분포의 **평균과 분산을 직접 출력**하도록 학습한다. 간단히 나타내면
+
+```math
+\begin{aligned}
+p_\theta(z_t\mid u_t)
+&=\mathcal N\!\big(z_t;\mu_\theta^{p}(u_t),\operatorname{diag}[(\sigma_\theta^{p}(u_t))^2]\big),\\
+q_\phi(z_t\mid u_t,o_t)
+&=\mathcal N\!\big(z_t;\mu_\phi^{q}(u_t,o_t),\operatorname{diag}[(\sigma_\phi^{q}(u_t,o_t))^2]\big).
+\end{aligned}
+```
+
+위의 $p$는 실제 $o_t$를 **입력받지 않고**, $q$는 실제 $o_t$를 **입력받는다**. $\theta$는 prior·RNN·decoder·reward predictor 등 생성 모델을, $\phi$는 inference network를 구분하는 표기다. 원논문의 Algorithm 1은 이런 전체 학습 파라미터를 포괄적으로 $\theta$라고 나타내므로, **기호 분리와 실제로 optimizer를 따로 실행한다는 주장은 구별**해야 한다.
+
+**하나의 training chunk에서 실행하는 순서**
+
+1. 이전 시점의 posterior sample $z_{t-1}$, 이전 $u_{t-1}$, 실제 기록 action $a_{t-1}$로 **recurrent memory $u_t$**를 계산한다.
+2. 새 관측을 주지 않은 prior network로 $p_\theta(z_t\mid u_t)$의 평균·분산을 구한다.
+3. 기록된 실제 이미지 $o_t$를 함께 사용하여 $q_\phi(z_t\mid u_t,o_t)$의 평균·분산을 계산한다.
+4. **훈련 때에는 posterior에서** $z_t$를 sample하고 $x_t=(u_t,z_t)$를 구성한다. Reparameterization을 쓰면 $z_t=\mu_\phi^q+\sigma_\phi^q\odot\epsilon_t$ ($\epsilon_t\sim\mathcal N(0,I)$)와 같이 gradient가 $\phi$로 흐른다.
+5. Observation decoder는 **실제 frame $o_t$**, reward predictor는 **실제 기록 reward $r_t$**를 설명하도록 negative log-likelihood를 계산한다. 그리고 동일 timestep의 **prior–posterior KL**을 계산한다.
+6. 여러 timestep의 loss를 합해 **하나의 backpropagation으로 prior, posterior, RNN, decoder, reward model의 파라미터를 함께 업데이트**한다. 새로운 trajectory를 수집하는 것은 별도의 interaction 단계다.
+
+**각 loss가 무엇을 어떻게 학습시키는가?**
+
+| 손실 | 실제로 주어진 학습 target | 주된 역할 |
+|---|---|---|
+| $-\log p_\theta(o_t\mid x_t)$ | 실제 카메라 영상 $o_t$ | Posterior가 이미지 정보를 담을 latent를 추론하게 하고, decoder가 이미지를 복원하게 학습 |
+| $-\log p_\theta(r_t\mid x_t)$ | 실제 환경 reward $r_t$ | Posterior/state가 task-relevant 정보를 담도록 유도하고 reward head를 학습 |
+| $D_{\mathrm{KL}}(q_\phi(z_t\mid u_t,o_t)\Vert p_\theta(z_t\mid u_t))$ | 별도의 **정답 latent 없음** | 실제 관측을 반영한 posterior와 **관측 없는 prior**가 일관된 분포를 학습하도록 연결 |
+
+따라서 **prior에는 '$z_t$의 정답 label을 주어 직접 supervised regression'하는 것이 아니다.** 관측·보상 NLL로 의미 있는 posterior가 형성되고, KL로 prior가 그 posterior를 예측하도록 압력을 받는다. Posterior $\phi$에는 NLL에서 오는 reconstruction/reward gradient와 KL gradient가 **모두** 작용한다. Prior $\theta$에는 **직접적으로 KL gradient**가 작용하고, 같은 $\theta$에 속하는 recurrent dynamics/decoder/reward head는 NLL 및 시간축의 backpropagation으로 함께 학습된다.
+
+**3 pixel → 1 pixel 로봇 팔 예제로 직관화하기:** Prior는 이전 움직임을 바탕으로 '3 pixel쯤 이동한 장면'을 예상하지만, 실제 관측에서는 '1 pixel 이동'이 나타났다. Posterior는 1 pixel 장면을 **잘 복원하도록** 추론된 latent를 제공해야 한다. KL은 그 posterior와 prior의 불일치를 줄이도록 학습시킨다. 이후 비슷한 감속 데이터가 충분히 누적되면 prior도 감속의 가능성을 반영할 수 있게 된다. 단, **pixel 숫자는 이해를 위한 비유이며 Gaussian 분포의 평균 자체가 pixel 단위인 것은 아니다.**
+
+**KL만 작게 만들면 되는가? 아니다.** 두 분포가 모두 의미 없는 같은 분포를 내어도 KL은 작을 수 있다. 그래서 observation/reward likelihood와 균형을 맞추어 **실제 미래를 설명하는 latent**를 학습해야 한다. 또한 미래가 본질적으로 불확실하다면 하나의 정답 값으로 강제하는 것이 아니라, 여러 가능한 상태를 포함하는 **분포**로 예측해야 한다.
+
+**원문과의 대응:** [PlaNet §3, Eq. (3)–(4)](https://proceedings.mlr.press/v97/hafner19a/hafner19a.pdf)는 관측 ELBO를 제시하고 reward loss는 동일한 방식이라고 설명한다. 원문의 **기본 ELBO에서 KL 계수는 1**이며, 이 노트의 앞 식에 있는 $\beta$는 일반적인 가중치 표현을 보여주기 위한 **개념적 표기**다. 원논문은 reparameterized sample로 gradient를 계산한다. 제안한 **latent overshooting**은 이후 5.3절 방법론 ③의 multi-step regularization으로, **최종 RSSM 성능을 위한 필수 구성은 아니었다**는 점도 별도로 확인해야 한다.
+
+
 #### 방법론 ③: Latent Overshooting
 
 One-step loss를 작게 만들어도 여러 번 rollout하면 예측 오차가 누적될 수 있다. 그래서 **$d$-step latent prior를 실제 데이터를 반영한 posterior와 맞추는** auxiliary objective를 제안했다.
@@ -1530,6 +1576,7 @@ WAM은 세계 예측과 실행 가능한 행동 선택의 연결을 핵심으로
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-10-14 | PlaNet 5.3절에 실제 trajectory 데이터, RSSM prior/posterior Gaussian parameterization, posterior sampling·reparameterization·ELBO backprop 절차, $θ/φ$별 gradient·NLL/KL 역할 및 prior/posterior 오차 보정 예시를 추가 |
 | 2026-10-14 | 5.3절 PlaNet의 **prior–posterior 업데이트 흐름**을 3 pixel 예측/1 pixel 실제 관측 예시로 설명하고, World Models MDN-RNN과 RSSM의 공통점·차이 및 deterministic/stochastic의 의미를 명확화 |
 | 2026-10-14 | 5.2절에 로봇·게임별 $o_t,a_t$ 대응, action 로그의 필요성, CarRacing/VizDoom의 **환경별 독립 훈련**과 다중 환경 범용 모델의 차이를 원논문에 근거해 추가 |
 | 2026-10-13 | 5.2절 World Models의 V·M·C **순차·분리 학습**, MDN의 조건부 **미래 latent 분포 학습**, RNN memory $h_t$의 시점별 갱신 및 실제 환경/dream 환경의 Controller reward 획득 방식을 보강 |
