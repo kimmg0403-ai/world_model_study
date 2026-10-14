@@ -978,6 +978,10 @@ z_{t+k+1}^{(i)}
 
 처럼 다음 **latent와 reward만** 예측한다(식의 인덱스는 전이 후 보상 관례로 통일한 **개념적 표현**이다). 미래 실제 관측 $o_{t+k+1}$은 없으므로 prior를 사용한다. Decoder로 미래 RGB 이미지 $\hat o_{t+k+1}$를 매번 복원할 필요는 없다.
 
+**왜 prior가 꼭 필요한가?** 실제 영상이 존재하는 현재 시각에는 posterior $q_\phi(z_t\mid u_t,o_t)$로 상태를 추론할 수 있다. 그러나 CEM이 평가하는 $H$-step hypothetical future에는 실제 $o_{t+1},\ldots,o_{t+H}$가 **아직 존재하지 않는다.** 따라서 각 action 후보가 다음 latent를 어떻게 바꿀지 예측하는 **prior가 관측 없는 시뮬레이션의 핵심 dynamics**다. **Posterior는 실측을 이용하는 state inference, prior는 미래 관측 없이 action-conditioned state transition**이라는 역할 분담이다.
+
+CEM은 이 prior와 reward predictor를 이용하지만, **prior는 CEM을 위해서만 존재하는 것은 아니다**. World model이 관측 없이 미래 상태를 예측하려면 imagination, rollout, 다른 planning 방법에서도 필요하며, 학습 중에는 posterior와의 KL을 통해 관측 없이 예측하는 능력을 훈련한다. 반대로 상상 속 미래에서 prior가 만들어낸 latent를 굳이 RGB image로 decoding한 다음 posterior에 입력하는 우회 과정을 사용하지 않는다.
+
 **CEM의 선택 과정:** 각 후보열의 예상 보상을 합산해 점수를 계산한 뒤, 점수가 높은 *elite* 행동열을 중심으로 **행동열 샘플링 분포**의 평균·분산을 반복 갱신한다. 최종적으로 선정한 행동열의 **첫 행동 $a_t$만 실제 환경에 실행**하고, 다음 카메라 영상 $o_{t+1}$을 얻어 posterior를 다시 계산한 뒤 처음부터 계획한다. **CEM은 RSSM의 prior/posterior나 별도 actor가 action을 직접 예측하는 모듈이 아니다.** Planning 중 바뀌는 것은 우선 **후보 action 분포**이며, 매번 $\theta,\phi$를 업데이트하는 것은 아니다. 새 실환경 데이터를 모으면 별도 world-model training 단계에서 다시 학습할 수 있다.
 
 **컵 옮기기 예시:** 현재 그리퍼가 컵 위에 있다. CEM은 '바로 닫기→들기', '오른쪽 2cm 이동→닫기→들기', '조금 내려가기→닫기→들기' 등의 후보를 만들고, RSSM prior와 reward predictor로 **컵이 실제로 잡힐 가능성을 반영한 미래 latent의 예상 보상**을 비교한다. 가장 좋은 행동열이 두 번째라면 **지금은 오른쪽 2cm 이동만 실행**한다. 실제 $o_{t+1}$에 그리퍼가 예상과 다른 곳에 있으면 posterior가 그 차이를 반영한다.
@@ -1644,6 +1648,7 @@ WAM은 세계 예측과 실행 가능한 행동 선택의 연결을 핵심으로
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-10-14 | 5.3절에 prior가 **미래 관측이 없는 H-step CEM rollout에 필요한 이유** 및 posterior(실측 state inference)와 prior(관측 없는 dynamics), reward predictor의 역할 구분을 추가 |
 | 2026-10-14 | 5.3절 PlaNet의 현재 관측 posterior / 가상 미래 prior / **CEM의 행동 생성·후보 평가·MPC 재계획**을 구분하고, RGB decoder 없이 reward head로 계획한다는 로봇 팔 예시 추가 |
 | 2026-10-14 | GitHub 수식에서 금지된 연산자 이름 지정 매크로 11곳을 허용되는 로마체 표기로 교체(`diag`, `sg`, `symlog`, `symexp`, `sign`). 수식 내용은 유지하고 렌더링 호환성 개선 |
 | 2026-10-14 | 5.3절의 $p_\theta$ 혼란 해소: prior/RNN/observation decoder/reward head 파라미터를 분리 표기하고, $q_\phi$가 reconstruction·reward NLL에서 **latent sampling 및 chain rule**로 gradient를 받는 과정을 계산 그래프와 scalar 예제로 설명 |
