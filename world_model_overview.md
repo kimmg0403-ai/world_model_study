@@ -1077,34 +1077,111 @@ G_t^\lambda
 
 이 식은 PPO에서 공부하는 GAE/TD($\lambda$)와 밀접하다. 여러 bootstrap horizon의 bias–variance trade-off를 조절한다.
 
-**가장 큰 기여: differentiable dynamics를 통한 actor gradient.**
-간단히 deterministic reparameterized dynamics를 쓰면
+#### Actor/Critic의 Loss: 일반적인 A2C와 무엇이 다른가?
+
+**핵심은 Actor loss의 명시적인 수식이다.** 아래에서는 이 노트의 표기에 맞춰 World Model $\theta$, Actor $\psi$, Critic $\xi$를 사용한다. Original Dreamer [§3, Eq. (7)–(8)](https://arxiv.org/pdf/1912.01603)의 두 최적화 목표를 **최소화하는 loss**로 쓰면
 
 ```math
-x_{t+1}=f_\theta(x_t,a_t),\qquad
-a_t=g_\psi(x_t,\epsilon_t)
+\boxed{
+\begin{aligned}
+\mathcal L_{\rm actor}(\psi)
+&=-\mathbb E_{\rm imagined}
+\left[\sum_{\tau=t}^{t+H}G_\tau^\lambda\right],\\
+\mathcal L_{\rm critic}(\xi)
+&=\mathbb E_{\rm imagined}
+\left[\sum_{\tau=t}^{t+H}
+\frac12\left(V_\xi(x_\tau)-\mathrm{sg}(G_\tau^\lambda)\right)^2
+\right].
+\end{aligned}}
 ```
 
-이므로
+이다. 여기서 $G_\tau^\lambda$는 바로 앞에서 정의한 **imagined $\lambda$-return**, $\mathrm{sg}$는 **stop-gradient**다. $\lambda$-return의 값은 Actor가 선택한 행동을 따라 World Model이 생성한 미래 상태·reward·Critic의 bootstrap value에 의존한다. 원논문은 Actor와 Critic 파라미터를 각각 $\phi,\psi$로 부르지만, 이 노트는 앞 절과의 일관성을 위해 $\psi,\xi$로 바꿔 썼다. 또한 원논문은 transition을 $q$로 표기하므로 이 노트의 prior $p_\theta$와 기호가 다르다.
+
+**일반적인 A2C와 비교해 보자.** A2C의 likelihood-ratio 기반 Actor loss는
 
 ```math
-\frac{\partial x_{t+1}}{\partial\psi}
-=
-\frac{\partial f_\theta}{\partial x_t}
-\frac{\partial x_t}{\partial\psi}
-+
-\frac{\partial f_\theta}{\partial a_t}
-\frac{\partial g_\psi}{\partial\psi}.
+\mathcal L_{\rm actor}^{\rm A2C}
+=-\mathbb E\left[
+\log\pi_\psi(a_t\mid x_t)\,\mathrm{sg}(\hat A_t)
+\right].
 ```
 
-즉 단지 $\nabla_\psi\log\pi_\psi$에 return을 곱하는 score-function estimator만 쓰는 것이 아니라, **액션이 미래 상태·보상에 미치는 경로를 미분**할 수 있다. 확률적 RSSM과 policy에서는 reparameterization을 활용한다.
+이다. A2C는 **advantage가 양수인 action의 log-probability를 증가**시키고, 음수인 행동의 확률을 감소시킨다. 반면 Original Dreamer의 Actor loss에는 **$\log\pi_\psi$나 명시적인 advantage가 등장하지 않는다.** Actor가 만든 imagined return 자체를 **미분 가능한 trajectory를 통해 직접 증가**시키기 때문이다. 따라서 **$\lambda$-return은 bootstrap된 value target이고 A2C의 advantage와 동일한 변수가 아니다.**
 
-Critic은 stop-gradient된 $\lambda$-return을 regression target으로 학습한다.
+#### 그럼 $\mathcal L_{\rm actor}$에서 $\psi$로 gradient가 어떻게 전달되는가?
+
+Actor action과 RSSM transition의 샘플링을 **reparameterization**한 다음과 같은 개념적 계산 그래프를 생각하자(Original Dreamer [§3, Eq. (3)](https://arxiv.org/pdf/1912.01603)).
 
 ```math
-\mathcal L_V=
-\mathbb E\left[(V_\xi(x_t)-\mathrm{sg}(G_t^\lambda))^2\right].
+\begin{aligned}
+a_t&=g_\psi(x_t,\epsilon_t)
+=\tanh\left(\mu_\psi(x_t)+\sigma_\psi(x_t)\odot\epsilon_t\right),
+&&\epsilon_t\sim\mathcal N(0,I),\\
+x_{t+1}&=F_\theta(x_t,a_t,\eta_t),
+&&\eta_t\sim\mathcal N(0,I),\\
+\hat r_{t+1}&=R_\theta(x_{t+1}),\qquad
+\hat v_{t+1}=V_\xi(x_{t+1}).
+\end{aligned}
 ```
+
+$F_\theta$는 RNN update와 stochastic latent prior를 합쳐 쓴 **미분 가능한 transition의 약식 표현**이고, $\eta_t$는 설명을 위한 노이즈 변수다. $R_\theta$는 reward predictor가 내는 미분 가능한 값(예: 조건부 평균)이다.
+
+먼저 시작 상태 $x_t$가 고정되어 있다고 가정하고, **다음 reward와 bootstrap value를 높이는 one-step 예제**를 보자. 이는 gradient를 이해하기 위한 단순화로, 위의 실제 Dreamer loss와 구별한다.
+
+```math
+J_{\rm one}(\psi)
+=\mathbb E_{\epsilon_t,\eta_t}\left[
+R_\theta(x_{t+1})+\gamma V_\xi(x_{t+1})
+\right],
+\quad
+x_{t+1}=F_\theta(x_t,g_\psi(x_t,\epsilon_t),\eta_t).
+```
+
+**Chain rule을 Actor 파라미터까지 끝까지 전개하면** (고정된 $x_t$에 대한 편미분을 사용)
+
+```math
+\boxed{
+\nabla_\psi J_{\rm one}
+=\mathbb E\left[
+\left(
+\frac{\partial R_\theta}{\partial x_{t+1}}
++\gamma\frac{\partial V_\xi}{\partial x_{t+1}}
+\right)
+\frac{\partial F_\theta}{\partial a_t}
+\frac{\partial g_\psi}{\partial\psi}
+\right].
+}
+```
+
+이 된다. **어떤 gradient가 어디에서 나오는지** 단계별로 보자.
+
+- $\partial g_\psi/\partial\psi$: Actor의 weight가 달라지면 행동 명령 $a_t$가 어떻게 달라지는가?
+- $\partial F_\theta/\partial a_t$: 행동 명령이 달라지면 World Model이 생성한 다음 latent $x_{t+1}$는 어떻게 달라지는가?
+- $\partial R_\theta/\partial x_{t+1}$와 $\partial V_\xi/\partial x_{t+1}$: 다음 상태가 바뀌면 예상 즉시 보상과 장기 가치가 어떻게 달라지는가?
+
+예컨대 컵을 조금 더 가까이 이동한 뒤 그리퍼를 닫는 행동이 더 높은 imagined return을 준다면, 이 gradient 경로를 통해 Actor의 출력이 그 방향으로 조정될 수 있다. **좋은 행동의 로그 확률을 advantage로 가중하는 방식이 아니라, 행동 자체의 연속적인 변화가 보상을 얼마나 개선하는지 이용한다.**
+
+실제 Dreamer는 이런 경로를 **여러 timestep으로 연장**한다. 예컨대 bootstrapped two-step return은
+
+```math
+\begin{aligned}
+G_t^{(2)}
+&=\hat r_t+\gamma\hat r_{t+1}
++\gamma^2 V_\xi(x_{t+2}),\\
+\nabla_\psi G_t^{(2)}
+&=\nabla_\psi\hat r_t
++\gamma\nabla_\psi\hat r_{t+1}
++\gamma^2
+\frac{\partial V_\xi}{\partial x_{t+2}}
+\frac{\partial x_{t+2}}{\partial\psi}.
+\end{aligned}
+```
+
+여기서 $\partial x_{t+2}/\partial\psi$에는 **$a_t\to x_{t+1}\to a_{t+1}\to x_{t+2}$**의 경로까지 모두 포함된다. 따라서 실제 Actor loss인 $\mathcal L_{\rm actor}=-\mathbb E[\sum_\tau G_\tau^\lambda]$는 **backpropagation through imagined trajectories**로 최적화된다.
+
+**World Model과 Critic을 고정하는데도 어떻게 미분할 수 있나?** $\theta$를 optimizer로 업데이트하지 않아도 $\partial F_\theta/\partial a_t$는 계산할 수 있고, $\xi$를 업데이트하지 않아도 $\partial V_\xi/\partial x$는 계산할 수 있다. **Parameter freeze와 계산 그래프 detach는 다르다.** Actor 학습에서 World Model을 완전히 detach하면 이 방법의 핵심 gradient 경로가 사라진다.
+
+마지막으로 **Actor loss에서는 $G_\tau^\lambda$에 gradient가 흐르지만, Critic loss에서는 $\mathrm{sg}(G_\tau^\lambda)$로 target을 고정**하고 $V_\xi$만 regression한다. 이 차이가 Original Dreamer의 Actor–Critic 학습을 이해할 때 가장 중요하다.
 
 **해결:** 온라인 CEM을 매번 반복하는 대신 상상 속에서 정책과 가치함수를 훈련하고 실제 실행 시 actor를 호출할 수 있게 했다. 다수의 visual continuous-control task에서 sample efficiency와 수행 성능의 개선을 보고했다.
 
@@ -1692,6 +1769,7 @@ WAM은 세계 예측과 실행 가능한 행동 선택의 연결을 핵심으로
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-10-14 | Dreamer 5.4.1절에 원논문 Eq. (7)–(8)의 Actor/Critic loss를 명시하고, A2C advantage-weighted log-prob와 Dreamer reparameterized actor gradient 비교. One-step chain rule, two-step return·BPTT, frozen world model/critic의 gradient 통과 경로를 보강 |
 | 2026-10-14 | Dreamer 5.4.1절에 imagined RL과 real-environment data collection의 차이, replay buffer가 실제 $o,r$로 업데이트되는 이유, model exploitation·distribution shift 및 실제 데이터 피드백에 의한 교정 가능성/한계를 추가 |
 | 2026-10-14 | Dreamer 5.4.1절에 world model 학습·행동 학습·데이터 수집의 반복 구조, actor/critic 학습 중 일시적 world-model 고정, A2C와 다른 analytic/pathwise actor gradient를 구분 |
 | 2026-10-14 | 5.2절 World Models의 간단한 복습 문장을 **5.3절과 같은 6문항 서술형 이해도 점검**으로 교체: V/M/C의 입출력·학습 target, MDN-RNN 분포와 memory, 단계별 훈련, CarRacing reward, VizDoom dream training, 행동 데이터와 환경 범용성 (정답 미포함) |
