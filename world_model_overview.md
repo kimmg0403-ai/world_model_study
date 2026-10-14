@@ -1624,7 +1624,7 @@ WAM은 세계 예측과 실행 가능한 행동 선택의 연결을 핵심으로
 
 | 날짜 | 변경 내용 |
 |---|---|
-| 2026-10-14 | GitHub MathJax에서 금지된 `\\operatorname` 매크로 11곳을 `\\mathrm`로 교체(공분산 `diag`, stop-gradient `sg`, `symlog`·`symexp`·`sign`). 수식 표현은 유지하고 렌더링 호환성 개선 |
+| 2026-10-14 | GitHub 수식에서 금지된 연산자 이름 지정 매크로 11곳을 허용되는 로마체 표기로 교체(`diag`, `sg`, `symlog`, `symexp`, `sign`). 수식 내용은 유지하고 렌더링 호환성 개선 |
 | 2026-10-14 | 5.3절의 $p_\theta$ 혼란 해소: prior/RNN/observation decoder/reward head 파라미터를 분리 표기하고, $q_\phi$가 reconstruction·reward NLL에서 **latent sampling 및 chain rule**로 gradient를 받는 과정을 계산 그래프와 scalar 예제로 설명 |
 | 2026-10-14 | PlaNet 5.3절에 실제 trajectory 데이터, RSSM prior/posterior Gaussian parameterization, posterior sampling·reparameterization·ELBO backprop 절차, $θ/φ$별 gradient·NLL/KL 역할 및 prior/posterior 오차 보정 예시를 추가 |
 | 2026-10-14 | 5.3절 PlaNet의 **prior–posterior 업데이트 흐름**을 3 pixel 예측/1 pixel 실제 관측 예시로 설명하고, World Models MDN-RNN과 RSSM의 공통점·차이 및 deterministic/stochastic의 의미를 명확화 |
