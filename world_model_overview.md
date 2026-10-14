@@ -831,6 +831,54 @@ p_\theta(z_t\mid u_t)\right).
 학습에서는 관측으로 posterior 상태를 추정하지만, 미래 rollout 동안에는 새로운 관측이 없으므로 prior로 샘플링한다.
 
 
+#### 먼저 $\theta$와 $\phi$가 무엇인지: prior와 decoder는 별도 네트워크
+
+**주의: 이 문서의 $p_\theta(z_t\mid u_t)$와 $p_\theta(o_t\mid x_t)$는 같은 weight를 가진 하나의 network를 두 번 호출한다는 뜻이 아니다.** $\theta$는 생성 모델의 여러 **서로 다른 파라미터 집합을 하나로 묶은 기호**다. 혼동을 피하려면 다음처럼 쪼개어 쓸 수 있다.
+
+| 역할 | 원래의 간략한 표기 | 파라미터를 분리한 표기 |
+|---|---|---|
+| Recurrent dynamics | $u_t=f_\theta(\cdot)$ | $u_t=f_{\theta_{\rm dyn}}(\cdot)$ |
+| Prior: latent dynamics prediction | $p_\theta(z_t\mid u_t)$ | $p_{\theta_{\rm prior}}(z_t\mid u_t)$ |
+| Posterior: latent state inference | $q_\phi(z_t\mid u_t,o_t)$ | $q_{\phi}(z_t\mid u_t,o_t)$ |
+| Observation decoder | $p_\theta(o_t\mid x_t)$ | $p_{\theta_{\rm obs}}(o_t\mid x_t)$ |
+| Reward predictor | $p_\theta(r_t\mid x_t)$ | $p_{\theta_{\rm reward}}(r_t\mid x_t)$ |
+
+따라서 이 노트의 약식 표현에서 $\theta=(\theta_{\rm dyn},\theta_{\rm prior},\theta_{\rm obs},\theta_{\rm reward})$로 이해하면 된다. 각 역할의 weight는 개념적으로 구분되며, 실제 구현에서 일부 공통 encoder/feature를 공유할 수 있다. **$p$는 prior의 약자가 아니라 probability model의 기호**다. 관측 decoder의 $p(o_t\mid x_t)$도 conditional likelihood이므로 $p$로 쓴다. $q$는 계산하기 어려운 generative posterior를 근사하는 inference distribution이라는 점을 구별하기 위한 관례다.
+
+**가장 많이 헷갈리는 gradient 경로: $p_{\theta_{\rm obs}}$를 쓰는 reconstruction loss가 왜 $q_\phi$를 학습시키나?** 실제 관측으로부터 posterior가 sample을 만들고 **그 sample이 decoder의 입력으로 들어가기 때문**이다.
+
+```math
+\begin{aligned}
+z_t&=\mu_\phi(u_t,o_t)+\sigma_\phi(u_t,o_t)\odot\epsilon_t,
+&&\epsilon_t\sim\mathcal N(0,I),\\
+x_t&=(u_t,z_t),\\
+\mathcal L_{\rm obs}
+&=-\log p_{\theta_{\rm obs}}(o_t\mid x_t).
+\end{aligned}
+```
+
+$u_t$를 고정하고 보면 chain rule로
+
+```math
+\frac{\partial\mathcal L_{\rm obs}}{\partial\phi}
+=
+\frac{\partial\mathcal L_{\rm obs}}{\partial z_t}
+\frac{\partial z_t}{\partial\phi}
+```
+
+가 된다. **손실의 함수 이름에 $\phi$가 직접 등장하지 않더라도**, $z_t$가 $\phi$에 의존하므로 reconstruction gradient가 posterior encoder까지 역전파된다. Reward likelihood도 $x_t$를 거쳐 동일한 경로로 posterior에 gradient를 줄 수 있다. 전체 시퀀스에서는 과거 $z_{t-1}$가 $u_t$에 영향을 주는 **시간축의 추가 gradient 경로(BPTT)**도 존재한다.
+
+**아주 작은 scalar 예:** 단순화해서 encoder가 $z=\phi o$를 계산하고 decoder가 $\hat o=Wz$를 출력하며 $\mathcal L=(o-\hat o)^2/2$라고 하자. $o=1$이면 $\mathcal L=(1-W\phi)^2/2$이므로
+
+```math
+\frac{\partial\mathcal L}{\partial\phi}
+=-W(1-W\phi)
+```
+
+이다. 손실이 decoder의 출력에서 계산되어도 encoder 파라미터 $\phi$의 gradient가 **0이 아닌 것**을 직접 볼 수 있다. 이는 원논문 고유의 구현 식이 아니라 gradient 연결을 설명하기 위한 **장난감 예시**다.
+
+마지막으로 KL 항 $D_{\rm KL}(q_\phi\Vert p_{\theta_{\rm prior}})$은 두 분포의 파라미터에 직접 의존하므로 **$\phi$와 $\theta_{\rm prior}$ 양쪽**으로 gradient가 간다. 따라서 **observation/reward likelihood는 decoder·posterior를, KL은 prior·posterior를 주로 학습**시키며 recurrent dynamics도 전체 시퀀스의 gradient를 받는다. **Prior와 decoder가 같은 $\theta$로 표기되었다는 것과 같은 weight를 공유한다는 것은 전혀 다른 주장**이다.
+
 #### Prior와 posterior의 파라미터는 실제로 어떻게 업데이트되는가?
 
 **State inference(이미 학습된 network를 이용해 $z_t$를 구하는 것)와 parameter learning($\theta,\phi$를 gradient descent로 변경하는 것)은 다른 과정이다.** 지금까지 설명한 'prior가 먼저 예측하고 관측이 들어오면 posterior가 보정한다'는 inference의 한 timestep이며, 실제 학습에서는 이 연산을 **여러 timestep에 대해 펼치고 ELBO loss를 역전파**한다.
@@ -863,9 +911,9 @@ q_\phi(z_t\mid u_t,o_t)
 
 | 손실 | 실제로 주어진 학습 target | 주된 역할 |
 |---|---|---|
-| $-\log p_\theta(o_t\mid x_t)$ | 실제 카메라 영상 $o_t$ | Posterior가 이미지 정보를 담을 latent를 추론하게 하고, decoder가 이미지를 복원하게 학습 |
-| $-\log p_\theta(r_t\mid x_t)$ | 실제 환경 reward $r_t$ | Posterior/state가 task-relevant 정보를 담도록 유도하고 reward head를 학습 |
-| $D_{\mathrm{KL}}(q_\phi(z_t\mid u_t,o_t)\Vert p_\theta(z_t\mid u_t))$ | 별도의 **정답 latent 없음** | 실제 관측을 반영한 posterior와 **관측 없는 prior**가 일관된 분포를 학습하도록 연결 |
+| $-\log p_{\theta_{\rm obs}}(o_t\mid x_t)$ | 실제 카메라 영상 $o_t$ | Posterior가 이미지 정보를 담을 latent를 추론하게 하고, **별도 decoder 파라미터**로 이미지를 복원하게 학습 |
+| $-\log p_{\theta_{\rm reward}}(r_t\mid x_t)$ | 실제 환경 reward $r_t$ | Posterior/state가 task-relevant 정보를 담도록 유도하고 **별도 reward head**를 학습 |
+| $D_{\mathrm{KL}}(q_\phi(z_t\mid u_t,o_t)\Vert p_{\theta_{\rm prior}}(z_t\mid u_t))$ | 별도의 **정답 latent 없음** | 실제 관측을 반영한 posterior와 **관측 없는 prior**가 일관된 분포를 학습하도록 연결 |
 
 따라서 **prior에는 '$z_t$의 정답 label을 주어 직접 supervised regression'하는 것이 아니다.** 관측·보상 NLL로 의미 있는 posterior가 형성되고, KL로 prior가 그 posterior를 예측하도록 압력을 받는다. Posterior $\phi$에는 NLL에서 오는 reconstruction/reward gradient와 KL gradient가 **모두** 작용한다. Prior $\theta$에는 **직접적으로 KL gradient**가 작용하고, 같은 $\theta$에 속하는 recurrent dynamics/decoder/reward head는 NLL 및 시간축의 backpropagation으로 함께 학습된다.
 
@@ -1576,6 +1624,7 @@ WAM은 세계 예측과 실행 가능한 행동 선택의 연결을 핵심으로
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-10-14 | 5.3절의 $p_\theta$ 혼란 해소: prior/RNN/observation decoder/reward head 파라미터를 분리 표기하고, $q_\phi$가 reconstruction·reward NLL에서 **latent sampling 및 chain rule**로 gradient를 받는 과정을 계산 그래프와 scalar 예제로 설명 |
 | 2026-10-14 | PlaNet 5.3절에 실제 trajectory 데이터, RSSM prior/posterior Gaussian parameterization, posterior sampling·reparameterization·ELBO backprop 절차, $θ/φ$별 gradient·NLL/KL 역할 및 prior/posterior 오차 보정 예시를 추가 |
 | 2026-10-14 | 5.3절 PlaNet의 **prior–posterior 업데이트 흐름**을 3 pixel 예측/1 pixel 실제 관측 예시로 설명하고, World Models MDN-RNN과 RSSM의 공통점·차이 및 deterministic/stochastic의 의미를 명확화 |
 | 2026-10-14 | 5.2절에 로봇·게임별 $o_t,a_t$ 대응, action 로그의 필요성, CarRacing/VizDoom의 **환경별 독립 훈련**과 다중 환경 범용 모델의 차이를 원논문에 근거해 추가 |
