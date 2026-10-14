@@ -786,6 +786,29 @@ p_\theta(r_t\mid u_t,z_t)&:\text{ reward predictor}.
 
 여기서 **posterior는 실제 관측을 본 후의 추론**, **prior는 아직 미래 관측을 볼 수 없을 때의 예측**이라는 차이를 반드시 기억하자.
 
+
+#### 구체적인 예시: 3 pixel 이동을 예측했지만 실제로는 1 pixel 이동했다면?
+
+한 화면에서 로봇 팔의 끝부분이 오른쪽으로 이동 중이라고 하자. 이전 몇 장면에서 매 frame 약 **3 pixel**씩 움직였고, 이전 행동 $a_{t-1}$도 오른쪽 이동을 명령했다고 가정한다. 이 픽셀 값은 **설명용 예시**이지 논문 실험의 측정값이 아니다.
+
+1. **History propagation:** 이전 recurrent state와 이전 관측에서 추론한 stochastic state 및 action을 바탕으로 $u_t=f_\theta(u_{t-1},z_{t-1},a_{t-1})$를 계산한다. $u_t$는 과거의 움직임과 행동에 관한 정보를 전달하는 **결정론적으로 계산되는 벡터**다.
+2. **Prior prediction:** 아직 실제 $o_t$를 보지 않은 $p_\theta(z_t\mid u_t)$는 예컨대 '약 3 pixel 이동한 로봇 팔'에 대응하는 latent 상태에 높은 확률을 줄 수 있다. 다만 **prior의 실제 출력은 pixel 이동량이 아니라 $z_t$의 조건부 분포**이며, 감속 등의 예측 불확실성까지 표현할 수 있다.
+3. **실제 관측:** 카메라가 찍은 실제 $o_t$에서는 로봇 팔이 감속하여 **1 pixel만 이동**한 것으로 나타난다. 실제 frame은 환경/센서에서 들어오는 것이지 prior가 생성해서 관측한 결과가 아니다.
+4. **Posterior inference:** $q_\phi(z_t\mid u_t,o_t)$는 그 실제 이미지를 보고 prior와 다르게, **1 pixel 이동한 장면에 부합하는 latent 분포**를 추론한다. 이는 Bayes posterior 자체가 아니라 학습된 **approximate posterior**다.
+5. **다음 시점:** 실제 $o_t$에서 추론한 $z_t$와 이후 action $a_t$를 사용하면 $u_{t+1}$ 및 다음 prior의 예측이 감속의 새로운 정보를 이어받게 된다.
+
+여기서 주의할 점은 **posterior가 새로운 관측을 반영하는 것은 주로 stochastic latent $z_t$를 추론하는 과정**이라는 것이다. 이미 계산한 $u_t$를 즉시 관측값으로 다시 계산하는 형태가 아니라, 관측을 반영한 $z_t$가 **다음 recurrent update**에 들어간다고 이해하면 된다.
+
+**World Models(2018)와의 공통점 및 차이**
+
+- **공통점:** 둘 다 과거를 누적하는 **deterministic RNN hidden state**와 학습된 **stochastic latent**를 사용하며, 하나의 action에도 여러 미래가 가능함을 고려한다. PlaNet이 최초로 이 두 요소를 결합했다고 보면 안 된다.
+- **World Models:** VAE가 현재 이미지를 $z_t$로 압축하고 MDN-RNN은 $p(z_{t+1}\mid z_t,a_t,h_t)$처럼 **다음 VAE latent의 분포**를 예측한다.
+- **PlaNet:** RSSM은 **deterministic recurrent memory $u_t$와 stochastic state $z_t$를 하나의 동역학 모델 안에서 사용**한다. 관측 없는 **prior** $p_\theta(z_t\mid u_t)$와 새 영상이 있는 **posterior** $q_\phi(z_t\mid u_t,o_t)$를 연결해 학습하고, 이를 관측·보상 예측과 latent-space planning에 활용한다.
+- **의미의 구별:** $u_t$는 언제나 '확실한 물리 사실'이고 $z_t$가 '100% 무작위 잡음'인 게 아니다. **Deterministic/stochastic은 계산 및 분포의 형태**를 구분하는 것이고, 실제 세계에 대한 확신도나 정보량을 나눈 것은 아니다.
+
+이 예제에서 **prior가 3 pixel을 믿다가 posterior가 1 pixel로 교정된다**는 문장은 직관을 위한 해석이다. 수학적으로는 **두 조건부 latent 분포의 차이**이며, 픽셀 단위의 이동 추정값을 얻고 싶다면 decoder 또는 별도 readout으로 latent와 실제 영상/물체 위치를 연결해야 한다.
+
+
 #### 방법론 ②: World model의 변분 학습
 
 Observation/reward의 negative log-likelihood와 one-step prior/posterior KL로 모델을 학습한다. RSSM을 압축하여 나타낸 개념식은
@@ -1507,6 +1530,7 @@ WAM은 세계 예측과 실행 가능한 행동 선택의 연결을 핵심으로
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-10-14 | 5.3절 PlaNet의 **prior–posterior 업데이트 흐름**을 3 pixel 예측/1 pixel 실제 관측 예시로 설명하고, World Models MDN-RNN과 RSSM의 공통점·차이 및 deterministic/stochastic의 의미를 명확화 |
 | 2026-10-14 | 5.2절에 로봇·게임별 $o_t,a_t$ 대응, action 로그의 필요성, CarRacing/VizDoom의 **환경별 독립 훈련**과 다중 환경 범용 모델의 차이를 원논문에 근거해 추가 |
 | 2026-10-13 | 5.2절 World Models의 V·M·C **순차·분리 학습**, MDN의 조건부 **미래 latent 분포 학습**, RNN memory $h_t$의 시점별 갱신 및 실제 환경/dream 환경의 Controller reward 획득 방식을 보강 |
 | 2026-10-13 | 전 절을 컵 옮기기 공통 예제로 다시 연결: 학습 데이터·기호 대응·모델별 prediction target·action 결정 과정·설명용 수치 및 실제 논문 실험과의 구별 보강 |
