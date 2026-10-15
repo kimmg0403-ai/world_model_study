@@ -1204,11 +1204,18 @@ G_t^{(2)}
 
 
 
-**읽을 질문**
-- Latent imagination의 첫 state는 posterior인데 다음 상태는 왜 prior로 생성하는가?
-- Original Dreamer의 actor gradient와 PPO의 likelihood-ratio gradient는 어떻게 다른가?
-- Critic이 있다면 짧은 imagination horizon으로도 장기 return을 다룰 수 있는 이유는?
-- World model의 loss와 actor의 목표함수는 왜 분리되는가?
+#### 이해도 점검 — 서술형 문제
+
+> **정답 없이 스스로 설명해 보는 문제다.** 1~5번은 Dreamer V1의 핵심 내용을, 6번은 심화 내용을 확인한다. 앞의 컵 옮기기 예시를 사용해도 좋다.
+
+1. **PlaNet에서 Dreamer로의 변화:** PlaNet의 CEM/MPC와 Original Dreamer의 Actor는 실제 실행할 action을 각각 어떻게 결정하는가? Dreamer가 world model의 imagined trajectory를 이용해 **미리 Actor를 학습**하는 이유를 설명하라.
+2. **실제 데이터와 imagined trajectory:** Dreamer에서 real replay buffer의 관측·행동·보상 sequence와 world model 내부의 imagined trajectory는 각각 **어떤 네트워크를 학습**시키는 데 쓰이는가? World model을 한 번 학습하고 영구히 freeze하는지, 아니면 어떤 주기로 다시 업데이트하는지도 설명하라.
+3. **Actor, Critic, World Model의 역할:** 현재 posterior state $x_t$로부터 길이 $H$의 imagination을 생성할 때, Actor $\pi_\psi$, RSSM prior, reward predictor, Critic $V_\xi$가 각각 **무엇을 입력받아 무엇을 출력하는지** 시간 순서대로 설명하라.
+4. **$\lambda$-return과 Critic loss:** $H=3$인 imagined trajectory에 대해 $G_t^{(1)}$, $G_t^{(2)}$, $G_t^{(3)}$ 및 $G_t^\lambda$를 **예측 reward와 bootstrap value**를 이용해 써 보라. 왜 $V_\xi(x)$를 사용하며, Critic은 어떤 target으로 학습되는가?
+5. **Actor loss와 gradient:** Original Dreamer의 Actor objective를 $G_t^\lambda$로 적고, 일반적인 A2C의 **advantage-weighted log-probability loss**와 비교하라. Actor의 action이 World Model과 reward/value를 거쳐 $\psi$에 gradient를 전달하는 경로를 설명하고, **World Model의 파라미터를 고정하는 것과 계산 그래프를 detach하는 것**이 왜 다른지도 설명하라.
+6. **심화 — Model Bias:** World Model이 '컵을 놓쳤는데도 높은 reward를 받는다'고 잘못 예측한다고 하자. 이것이 imagined Actor 학습에 어떤 영향을 주는가? 실제 환경에서 수집한 $o_t,r_t$가 어떻게 World Model을 교정할 수 있는지, 그럼에도 **model exploitation이나 distribution shift** 문제가 남는 이유를 설명하라.
+
+**자가 확인 기준:** 각 문제에서 **실제 데이터 / 가상 데이터, model loss / actor loss / critic loss, 파라미터 업데이트 / 미분 경로**를 명확히 구분하여 설명할 수 있는지 확인하자.
 
 #### 5.4.2 DreamerV2 — V3를 이해하기 위한 연결 고리
 
@@ -1769,6 +1776,7 @@ WAM은 세계 예측과 실행 가능한 행동 선택의 연결을 핵심으로
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-10-15 | Dreamer V1(5.4.1절)의 ‘읽을 질문’을 **서술형 이해도 점검 6문항**으로 교체: PlaNet과의 차이, 실제 데이터/상상 rollout, Actor·Critic·RSSM의 역할, $\lambda$-return과 bootstrap, A2C 대비 pathwise gradient, model bias (정답 미포함) |
 | 2026-10-14 | Dreamer 5.4.1절에 원논문 Eq. (7)–(8)의 Actor/Critic loss를 명시하고, A2C advantage-weighted log-prob와 Dreamer reparameterized actor gradient 비교. One-step chain rule, two-step return·BPTT, frozen world model/critic의 gradient 통과 경로를 보강 |
 | 2026-10-14 | Dreamer 5.4.1절에 imagined RL과 real-environment data collection의 차이, replay buffer가 실제 $o,r$로 업데이트되는 이유, model exploitation·distribution shift 및 실제 데이터 피드백에 의한 교정 가능성/한계를 추가 |
 | 2026-10-14 | Dreamer 5.4.1절에 world model 학습·행동 학습·데이터 수집의 반복 구조, actor/critic 학습 중 일시적 world-model 고정, A2C와 다른 analytic/pathwise actor gradient를 구분 |
