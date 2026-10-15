@@ -1189,19 +1189,35 @@ G_t^{(2)}
 
 #### Model Bias: 불완전한 World Model과 Actor를 반복 학습해도 되는가?
 
-**가장 중요한 구분: imagined trajectory는 Actor/Critic 학습용이고, World Model을 업데이트하는 replay 데이터는 실제 환경이 반환한 trajectory다.** Original Dreamer [Algorithm 1](https://ar5iv.labs.arxiv.org/html/1912.01603)에 따르면:
+**불완전한 World Model에서 Actor를 학습하면 오류가 점점 누적되지 않을까?** 이것은 타당한 우려지만, 먼저 **World Model의 예측으로 만든 *imagined trajectory*와 실제 환경에서 얻은 *real trajectory*의 역할**을 구별해야 한다. Original Dreamer의 [Algorithm 1](https://ar5iv.labs.arxiv.org/html/1912.01603)은 다음 두 종류의 학습을 번갈아 수행한다.
 
-1. 현재 real replay buffer $\mathcal D$에서 실제 $(o_t,a_t,r_t)$ 시퀀스를 뽑아 RSSM을 학습한다.
-2. 관측으로 추론한 시작 상태에서 **학습된 RSSM prior와 reward predictor**로 imagined states/rewards $(\hat x_\tau,a_\tau,\hat r_\tau)$를 만들고 Actor/Critic을 학습한다. 이 단계에서는 world-model parameter는 고정하되, actor gradient는 미분 가능한 model을 **통과할 수 있다**.
-3. Actor를 **실제 환경/원래 게임 엔진**에 실행한다. 실제 환경이 반환하는 $o_{t+1}^{\rm env},r_t^{\rm env}$와 사용한 $a_t$를 기록해 $\mathcal D$에 추가한다. 여기서 dataset에 들어가는 target은 $\hat o,\hat r$가 아니다.
-4. 새 real data로 World Model을 다시 학습한다. 따라서 잘못 예측한 imagined reward가 **곧바로 다음 world model의 정답 label로 누적되는 자기학습 구조는 아니다**.
+1. **World Model 학습 — 실제 데이터:** Replay buffer $\mathcal D$의 $(o_t,a_t,r_t,o_{t+1})$ 시퀀스로 RSSM의 posterior/prior·관측 decoder·reward predictor를 학습한다. $o_t$와 $r_t$는 **실제 환경(게임 엔진이나 로봇)이 반환한 값**이다.
+2. **Actor/Critic 학습 — 가상 데이터:** 실제 관측으로 얻은 posterior state에서 시작해, Actor가 선택한 action을 **RSSM prior**로 전개하고 reward predictor와 Critic으로 imagined return을 계산한다. 이 단계에서 World Model 파라미터는 업데이트하지 않지만, gradient는 미분 가능한 dynamics를 **통과해 Actor로 전달**된다. 생성된 $\hat x_t,\hat r_t$는 World Model의 새로운 정답 데이터가 아니다.
+3. **새 데이터 수집과 재학습:** 학습된 Actor를 **실제 환경에 실행**하고, 실제로 관측된 다음 영상과 reward를 $\mathcal D$에 추가한다. 이후 World Model을 다시 학습한다. 따라서 **상상 속 잘못된 보상을 정답으로 되먹이는 자기학습 구조는 아니다.**
 
-**컵 잡기 예시:** World Model이 그리퍼를 빨리 닫아도 컵을 잡았다고 잘못 상상하면 Actor는 그 행동을 선호할 수 있다. 하지만 실제 로봇/게임 환경에서는 컵을 놓치고 **실제 실패 영상과 낮은 실제 reward**가 기록된다. 이후 model 학습은 이런 실패 데이터를 통해 해당 상태의 동역학·reward 예측을 교정할 수 있다. 실제 observation에 센서 잡음이 존재할 수는 있지만, **센서 잡음과 World Model의 예측 오류는 구분**해야 한다.
+그렇더라도 **가상에서 최적화한 행동이 현실에서 잘 작동한다는 보장은 없다.** 이를 컵 집기 예시에서 두 문제로 나누어 보자.
 
-**그렇다면 오류가 절대 누적되지 않는가? 그렇지 않다.** Actor가 World Model이 과도하게 높은 reward를 예측하는 상태를 선택하면 잘못된 행동을 배울 수 있다(*model exploitation*). 실제 탐험이 부족해 해당 상태에 대한 교정 데이터가 충분히 들어오지 않거나, 높은 차원의 관측에서 모델의 일반화가 실패하면, **policy의 방문 분포와 model bias가 서로 악영향**을 줄 수 있다. 또한 imagined rollout 자체에서는 one-step model error가 여러 단계에 걸쳐 커질 수 있다. 원논문의 alternating training은 **실제 환경 데이터로 되돌아가는 교정 경로**를 제공하지만, model bias가 사라지거나 학습의 수렴이 보장된다는 뜻은 아니다.
+**① Distribution Shift — World Model이 학습한 상황과 Actor가 방문하는 상황이 달라진다.** 초기 실제 데이터가 대부분 **그리퍼를 천천히 닫아 컵을 잡는 동작**으로 이루어져 있다고 하자. 이후 Actor가 높은 imagined return을 찾으며 **그리퍼를 훨씬 빠르게 닫는 행동**을 선택하기 시작하면, World Model은 거의 학습하지 않은 상태·행동 조합을 예측해야 한다. 이를 개념적으로 쓰면
 
-**한 문장 요약:** *잘못된 world model → 잘못된 actor → 실제 환경에서 실패 → 진짜 실패 데이터를 통해 world model 수정 가능*이라는 피드백 구조다. 단, 탐색 부족·분포 이동·model exploitation 때문에 이 교정이 항상 충분한 것은 아니다.
+```math
+d_{\mathcal D}(x,a)\ne d_{\pi_\psi}(x,a).
+```
 
+왼쪽은 World Model 훈련 데이터에서 나타난 상태·행동 분포, 오른쪽은 **현재 Actor가 실제로 방문하게 되는** 상태·행동 분포를 뜻한다. **Distribution shift 자체는 '높은 reward를 잘못 예측한다'는 뜻이 아니다.** 모델이 익숙하지 않은 영역으로 행동 분포가 이동했다는 뜻이고, 그 결과 dynamics나 reward 예측 오류가 커질 *수* 있다.
+
+**② Model Exploitation — Actor가 World Model의 예측 오류를 유리한 행동으로 학습한다.** 빠른 그리퍼 동작에 대한 데이터가 부족해 World Model이 **실제로는 컵을 놓치는 행동을 성공으로 예측**한다고 하자. 예컨대 실제 reward는 $-1$인데 World Model은 $+10$으로 예측한다면(모두 설명용 가상 수치), Actor는 imagined return을 높이기 위해 **그 잘못된 예측을 주는 행동을 더 선호**할 수 있다. Actor가 의도적으로 모델을 속이는 것이 아니라, **모델의 예상 return을 최적화하는 과정이 모델의 약점을 선택하게 되는 현상**이다. 따라서
+
+```math
+\hat J_\theta(\pi_\psi)\gg J_{\rm env}(\pi_\psi)
+```
+
+처럼 예상 성능과 실제 성능이 크게 벌어질 수도 있다. **Distribution Shift와 Model Exploitation은 같은 문제가 아니다.** 전자는 훈련 분포와 방문 분포의 차이이고, 후자는 **잘못된 모델 예측을 정책이 이용하도록 최적화되는 현상**이다. 전자가 후자를 유발할 수 있지만, 반드시 함께 발생하는 것은 아니다.
+
+**③ 실제 환경에서의 교정 — 왜 무한히 오류가 누적된다고 단정할 수 없는가?** Actor가 빠르게 닫는 행동을 실제 로봇에 실행하면, 실제로는 컵을 놓쳤다는 영상 $o_{t+1}^{\rm env}$과 낮은 reward $r_t^{\rm env}$가 replay buffer에 저장된다. 다음 World Model 업데이트에서는 바로 이 **실제 실패 사례**를 사용해 해당 동작의 상태 전이와 reward 예측을 수정할 수 있다. 이 점이 *잘못된 World Model → 잘못된 Actor → 가짜 성공 데이터를 다시 World Model에 학습*하는 구조와 다른 핵심이다. 실제 센서 관측에 잡음이 있을 수는 있지만, 이는 **World Model이 생성한 가짜 정답**과는 별개다.
+
+하지만 이 교정은 **가능성이지 수렴 보장이 아니다.** 실패한 영역을 충분히 탐색하지 못하면 교정용 데이터가 부족할 수 있고, policy가 변할 때마다 새로운 distribution shift가 발생할 수 있다. 또한 상상 속 장기 rollout에서는 작은 one-step model error가 누적될 수 있다. Dreamer의 alternating training은 **현실의 feedback으로 모델 오류를 수정할 경로**를 제공하지만, model exploitation과 distribution shift를 원천적으로 제거하지는 않는다.
+
+**핵심 흐름:** *느린 동작 위주의 실제 데이터 → 새로운 빠른 동작에 따른 distribution shift → 과도하게 낙관적인 reward 예측 → model exploitation → 실제 실패 관측으로 World Model 교정 시도*. 이는 **두 문제의 정의와 둘 사이의 인과관계를 구분**하기 위한 가상 로봇 예시이지, 원논문의 특정 로봇 실험 결과를 뜻하지 않는다.
 
 
 #### 이해도 점검 — 서술형 문제
@@ -1776,6 +1792,7 @@ WAM은 세계 예측과 실행 가능한 행동 선택의 연결을 핵심으로
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-10-15 | Dreamer 5.4.1절 Model Bias 문단 **전면 재구성**: 느린 그리퍼 동작의 데이터에서 빠른 동작으로 이동하는 distribution shift, 잘못 예측한 높은 reward를 선호하는 model exploitation, 실제 실패 관측에 의한 model 교정과 한계를 기존 학습 순서에 통합 |
 | 2026-10-15 | Dreamer V1(5.4.1절)의 ‘읽을 질문’을 **서술형 이해도 점검 6문항**으로 교체: PlaNet과의 차이, 실제 데이터/상상 rollout, Actor·Critic·RSSM의 역할, $\lambda$-return과 bootstrap, A2C 대비 pathwise gradient, model bias (정답 미포함) |
 | 2026-10-14 | Dreamer 5.4.1절에 원논문 Eq. (7)–(8)의 Actor/Critic loss를 명시하고, A2C advantage-weighted log-prob와 Dreamer reparameterized actor gradient 비교. One-step chain rule, two-step return·BPTT, frozen world model/critic의 gradient 통과 경로를 보강 |
 | 2026-10-14 | Dreamer 5.4.1절에 imagined RL과 real-environment data collection의 차이, replay buffer가 실제 $o,r$로 업데이트되는 이유, model exploitation·distribution shift 및 실제 데이터 피드백에 의한 교정 가능성/한계를 추가 |
