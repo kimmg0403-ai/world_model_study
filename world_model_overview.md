@@ -1233,13 +1233,453 @@ d_{\mathcal D}(x,a)\ne d_{\pi_\psi}(x,a).
 
 **자가 확인 기준:** 각 문제에서 **실제 데이터 / 가상 데이터, model loss / actor loss / critic loss, 파라미터 업데이트 / 미분 경로**를 명확히 구분하여 설명할 수 있는지 확인하자.
 
-#### 5.4.2 DreamerV2 — V3를 이해하기 위한 연결 고리
+#### 5.4.2 DreamerV2 (Hafner et al., ICLR 2021) — Discrete World Model과 KL Balancing
 
-**왜 categorical latent를 쓰는가?** 연속 latent 대신 여러 카테고리의 조합으로 표현할 수 있다. 컵의 '잡힘/미끄러짐'과 유사한 이산적인 가능성을 떠올릴 수 있지만 **각 카테고리가 사람이 부여한 성공/실패 label이라는 뜻은 아니다**. 모델은 실제 영상·reward 예측에 유리한 이산 표현을 스스로 학습한다.
+**원문:** *Mastering Atari with Discrete World Models* ([논문](https://arxiv.org/abs/2010.02193) · [공식 구현](https://github.com/danijar/dreamerv2))
 
-**원문:** *Mastering Atari with Discrete World Models* ([2020 프리프린트](https://arxiv.org/abs/2010.02193)).
+#### 문제의식: 왜 DreamerV1만으로는 부족했는가?
 
-DreamerV2는 discrete/categorical stochastic latent, straight-through gradient, KL balancing 등을 도입·발전시켜 Atari에서도 강력한 imagination learning을 구현했다. **따라서 categorical latent와 KL balancing을 모두 DreamerV3의 최초 발명으로 귀속하면 안 된다.** 이 노트에서는 V2를 V3의 안정화 설계를 이해하기 위한 브리지로 읽는다.
+DreamerV1은 학습된 RSSM 안에서 imagined trajectory를 생성하고, 미분 가능한 dynamics를 통해 Actor–Critic을 학습하는 방법을 제시했다. 이는 주로 continuous-control 환경에서 좋은 성능을 보였지만, Atari와 같은 복잡한 게임에서는 기존의 강력한 model-free RL 알고리즘에 경쟁력 있는 성능을 달성하기 어려웠다.
+
+Atari는 연속적인 물체 이동뿐 아니라 적의 소멸, 아이템 획득, 새로운 방으로의 이동 등 불연속적인 상태 변화를 포함한다. 따라서 정확한 future prediction을 위한 World Model의 표현 능력이 중요하다.
+
+DreamerV2의 핵심 아이디어는 **DreamerV1의 imagination-based Actor–Critic 구조를 유지하면서, World Model의 stochastic latent representation과 학습 방법을 개선하는 것**이다.
+
+주요 변화는 다음과 같다.
+
+| 항목 | DreamerV1 | DreamerV2 |
+|---|---|---|
+| Stochastic latent | Gaussian | Categorical |
+| Latent sampling gradient | Reparameterization | Straight-Through Estimator |
+| Prior–Posterior KL | 일반적인 KL regularization | KL Balancing |
+| Atari Actor gradient | 기존 V1의 pathwise 방식 | REINFORCE 중심 |
+| Episode termination | 환경에 따른 return 계산 | Learned discount predictor 활용 |
+| 주요 검증 | Continuous control | Atari 55개 게임 및 continuous control |
+
+중요하게도 V2는 **World Model의 dynamics를 더 정확히 학습하는 문제와, 그 모델 안에서 Actor를 어떻게 학습할지라는 문제를 모두 개선**한다.
+
+#### 1. Categorical Latent — Gaussian을 대체하는 새로운 상태 표현
+
+기존 DreamerV1의 RSSM에서는 stochastic state를 diagonal Gaussian으로 모델링했다.
+
+```math
+z_t\sim q_\phi(z_t\mid u_t,o_t)
+=\mathcal N(\mu_\phi(u_t,o_t),\Sigma_\phi(u_t,o_t)).
+```
+
+DreamerV2는 이를 여러 categorical random variable의 조합으로 대체한다.
+
+```math
+z_t=(z_t^{(1)},\ldots,z_t^{(K)}),
+\qquad
+z_t^{(i)}\sim\mathrm{Categorical}(p_t^{(i)}).
+```
+
+각 $z_t^{(i)}$는 하나의 category를 선택하는 one-hot random variable이다.
+
+**원논문의 설정은 32개의 categorical variable에 각각 32개의 category를 사용하는 것**이다. 따라서 flatten한 stochastic state는 1024차원이지만, 한 sample에서 값이 1인 원소는 32개뿐이다.
+
+```math
+K=32,\qquad C=32,\qquad
+z_t\in\{0,1\}^{1024}.
+```
+
+이 구조는 1024개의 독립적인 binary variable과는 다르다. 각 32차원 group마다 정확히 하나의 category를 선택한다.
+
+**왜 Categorical이 유리할 수 있는가?**
+
+가령 Atari 게임에서 캐릭터가 특정 문으로 이동한다고 하자. 다음 상태는 현재 방에 남아 있는 상태이거나 새로운 방에 들어간 상태일 수 있다.
+
+하나의 Gaussian 분포는 이런 서로 구분되는 가능성들을 표현하는 데 제약이 있을 수 있다. 반면 categorical representation은 서로 다른 상태 구성을 이산적으로 선택할 수 있다.
+
+원논문에서는 다음과 같은 가능성을 제시한다.
+
+- Categorical prior는 각 categorical 변수에서 posterior들의 혼합 분포를 표현하는 데 유리할 수 있다.
+- One-hot representation의 sparsity가 일반화에 도움이 될 수 있다.
+- Atari에서 발생하는 불연속적인 상태 변화에 적합한 inductive bias를 제공할 수 있다.
+
+다만 **categorical latent가 우수한 정확한 이유는 원논문에서도 확정적으로 규명하지 않았다.** 위 설명들은 저자들이 제시한 가설이다.
+
+또한 개별 category가 '성공', '실패', '점프' 같은 사람이 정한 의미를 갖는 것은 아니다. Category의 의미는 영상 및 reward prediction을 학습하면서 자동으로 형성된다.
+
+#### 2. Straight-Through Estimator — Discrete Sampling을 어떻게 미분하는가?
+
+Categorical latent를 사용할 때 발생하는 문제는 sampling operation이 일반적으로 미분 가능하지 않다는 점이다.
+
+Gaussian에서는
+
+```math
+z_t=\mu_\phi+\sigma_\phi\odot\epsilon,
+\qquad \epsilon\sim\mathcal N(0,I)
+```
+
+이라는 reparameterization을 사용할 수 있었다.
+
+하지만 categorical distribution에서 category를 sample하고 one-hot으로 바꾸는 연산은 logits에 대해 미분 가능하지 않다.
+
+DreamerV2는 이를 해결하기 위해 **Straight-Through Estimator(STE)**를 사용한다.
+
+하나의 categorical variable에 대해 logits를 $\ell$이라 하자.
+
+```math
+p=\mathrm{softmax}(\ell),
+\qquad
+z^{\mathrm{sample}}
+=\mathrm{onehot}(\mathrm{Categorical}(p)).
+```
+
+이제 실제 학습에 사용할 tensor를 다음과 같이 정의한다.
+
+```math
+\boxed{
+\widetilde z
+=z^{\mathrm{sample}}+p-\mathrm{sg}(p)
+}
+```
+
+여기서 $\mathrm{sg}$는 stop-gradient다.
+
+**Forward pass:** $p-\mathrm{sg}(p)$의 값은 0이므로
+
+```math
+\widetilde z=z^{\mathrm{sample}}.
+```
+
+실제로는 이산적인 one-hot state가 사용된다.
+
+**Backward pass:** $z^{\mathrm{sample}}$과 $\mathrm{sg}(p)$를 상수처럼 취급하므로
+
+```math
+\boxed{
+\frac{\partial\widetilde z}{\partial\ell}
+=
+\frac{\partial p}{\partial\ell}.
+}
+```
+
+즉 실제로는 categorical sample을 사용하면서, gradient는 softmax probability를 통과하는 것처럼 계산한다.
+
+이 gradient는 **biased estimator**다. 실제 discrete sampling의 정확한 gradient를 계산하는 것이 아니라 학습을 가능하게 만드는 근사적인 gradient를 사용하는 것이다.
+
+DreamerV2는 STE를 사용해 posterior sampling 이후의 reconstruction/reward loss가 representation network까지 역전파될 수 있도록 한다.
+
+이 점은 이후 Actor 학습에서 사용되는 REINFORCE와 구분해야 한다. **STE는 V2의 World Model 학습에 핵심적으로 사용되고, Atari Actor 학습에는 REINFORCE가 주로 사용된다.**
+
+#### 3. World Model의 학습: RSSM과 Discount Predictor
+
+DreamerV2는 PlaNet과 DreamerV1의 RSSM 구조를 계승한다.
+
+이 노트의 표기를 이용하면
+
+```math
+\begin{aligned}
+u_t &= f_\theta(u_{t-1},z_{t-1},a_{t-1}),\\
+q_\phi(z_t\mid u_t,o_t) &:\ \text{Posterior},\\
+p_\theta(z_t\mid u_t) &:\ \text{Prior},\\
+x_t&=(u_t,z_t).
+\end{aligned}
+```
+
+이다.
+
+World Model이 학습하는 prediction head는 다음과 같다.
+
+| 모듈 | 예측 대상 |
+|---|---|
+| Observation decoder | $p(o_t\mid x_t)$ |
+| Reward predictor | $p(r_t\mid x_t)$ |
+| Discount predictor | $p(\gamma_t\mid x_t)$ |
+
+여기서 **Discount Predictor**를 살펴볼 필요가 있다.
+
+Episode가 종료되면 그 이후의 reward를 누적해서는 안 된다. DreamerV2는 학습 데이터에 terminal 정보를 반영한 discount target을 포함하고, World Model이 이를 예측하도록 한다.
+
+실제 데이터의 discount는 episode 내부에서는 지정된 discount factor를 가지며, 종료 시점에서는 0이 된다. Discount predictor는 이를 Bernoulli likelihood로 학습한다.
+
+따라서 미래의 imagined trajectory에서 episode가 끝날 가능성도 고려할 수 있다.
+
+World Model의 전체 목적함수는 개념적으로 다음과 같다.
+
+```math
+\boxed{
+\begin{aligned}
+\mathcal L_{\mathrm{WM}}
+=\mathbb E_q\sum_t\big[
+&-\log p_\theta(o_t\mid x_t)\\
+&-\log p_\theta(r_t\mid x_t)\\
+&-\log p_\theta(\gamma_t\mid x_t)\\
+&+\beta\mathcal L_{\mathrm{KL},t}
+\big].
+\end{aligned}
+}
+```
+
+여기서 $\mathcal L_{\mathrm{KL},t}$은 다음 절의 KL balancing을 적용한 KL 항이다. 식에서는 간결하게 $p_\theta$를 사용했지만 observation/reward/discount/prior predictor의 실제 파라미터가 전부 동일하다는 의미는 아니다.
+
+즉 **V2도 여전히 실제 관측 데이터를 이용해 World Model을 학습하는 sequential VAE 계열 모델**이다.
+
+#### 4. KL Balancing — 왜 Posterior보다 Prior를 더 빠르게 학습시키는가?
+
+기존 RSSM에서는 다음 KL loss를 최소화했다.
+
+```math
+D_{\mathrm{KL}}\left(
+q_\phi(z_t\mid u_t,o_t)
+\Vert
+p_\theta(z_t\mid u_t)
+\right).
+```
+
+이 KL을 줄이는 데에는 서로 다른 두 방향이 존재한다.
+
+**첫 번째 방향: Prior가 Posterior에 접근한다.**
+
+Prior는 실제 이미지 $o_t$를 보지 못하므로 Posterior보다 정보가 부족하다. KL을 통해 Prior가 실제 관측을 반영한 Posterior와 가까워지도록 학습한다.
+
+**두 번째 방향: Posterior가 Prior에 접근한다.**
+
+Posterior도 KL gradient를 받으므로 실제 관측에서 새로운 정보를 충분히 반영하기보다, 상대적으로 정보가 부족한 Prior에 맞춰질 수 있다.
+
+이는 Posterior의 표현 능력에 제약을 줄 수 있다.
+
+DreamerV2에서는 **어려운 dynamics prediction을 수행하는 Prior가 먼저 충분히 정확해지도록 유도하는 것**이 중요하다고 판단했다.
+
+이를 위해 다음과 같이 loss를 변경한다.
+
+```math
+\boxed{
+\begin{aligned}
+\mathcal L_{\mathrm{KL},t}
+={}&\alpha D_{\mathrm{KL}}\left(
+\mathrm{sg}(q_\phi)\Vert p_\theta
+\right)\\
+&+(1-\alpha)D_{\mathrm{KL}}\left(
+q_\phi\Vert\mathrm{sg}(p_\theta)
+\right).
+\end{aligned}
+}
+```
+
+- 첫 항은 Prior를 Posterior에 맞추는 gradient를 제공한다.
+- 두 번째 항은 Posterior를 Prior에 맞추는 gradient를 제공한다.
+
+Atari 설정에서는
+
+```math
+\alpha=0.8,\qquad \beta=0.1
+```
+
+을 사용한다.
+
+**$\alpha$와 $\beta$는 서로 다른 역할을 한다.**
+
+$\beta$는 전체 prediction loss에 대한 KL의 상대적인 비중을 결정한다. 반면 $\alpha$는 KL 내부에서 Prior와 Posterior가 받는 gradient의 상대적인 크기를 조정한다.
+
+Stop-gradient는 forward에서 KL의 값을 바꾸지 않지만 backward에서 gradient 경로를 바꾼다.
+
+따라서 이 기법은 단순히 KL의 크기를 변경하는 것이 아니라 **어떤 분포가 다른 분포를 따라가며 학습할 것인지 조절하는 방법**이다.
+
+원논문에서는 이를 KL Balancing이라고 부른다.
+
+핵심적인 목적은 **Posterior의 정보를 지나치게 제한하는 대신, Prior의 예측 정확도를 높이는 것**이다. 이 Prior가 이후 Actor의 imagination에서 사용되므로 dynamics accuracy는 행동 학습에 직접적인 영향을 준다.
+
+#### 5. Actor–Critic: V1과 무엇이 달라졌는가?
+
+DreamerV2도 V1과 마찬가지로 World Model 내부에서 imagined trajectory를 생성한다.
+
+```math
+a_t\sim\pi_\psi(a_t\mid x_t),
+\qquad
+x_{t+1}\sim p_\theta(x_{t+1}\mid x_t,a_t).
+```
+
+Actor는 latent state를 입력으로 받고, Critic은 상태의 기대 누적 reward를 예측한다.
+
+```math
+V_\xi(x_t)\approx
+\mathbb E\left[
+\sum_{k=0}^{\infty}
+\left(\prod_{j=0}^{k-1}\hat\gamma_{t+j}\right)
+\hat r_{t+k}
+\mid x_t
+\right].
+```
+
+빈 곱은 1로 정의한다. 이 표현은 환경 종료 가능성을 반영한 상태별 discount를 사용한다는 뜻이다.
+
+Critic의 학습에는 V1과 마찬가지로 $\lambda$-return을 사용한다.
+
+```math
+G_t^\lambda
+=
+\hat r_t+
+\hat\gamma_t\left[
+(1-\lambda)V_\xi(x_{t+1})
++\lambda G_{t+1}^\lambda
+\right],
+```
+
+마지막 imagination state에서는 $G_H^\lambda=V_\xi(x_H)$로 bootstrap한다.
+
+따라서 Critic loss는
+
+```math
+\mathcal L_{\mathrm{critic}}
+=
+\mathbb E\left[
+\sum_{t=0}^{H-1}
+\frac12\left(
+V_\xi(x_t)-\mathrm{sg}(G_t^\lambda)
+\right)^2
+\right].
+```
+
+와 같이 표현할 수 있다.
+
+원논문에서는 학습 안정성을 위해 주기적으로 갱신하는 **target critic**도 사용한다.
+
+Atari의 기본 설정은 imagination horizon $H=15$, $\lambda=0.95$이다. 위 식에서는 간결하게 나타냈지만 실제 학습에서는 predicted discount의 누적값으로 actor/critic loss를 가중한다.
+
+#### 6. Actor Gradient: Pathwise Gradient에서 REINFORCE로
+
+이 부분이 V1에서 V2로 넘어갈 때 중요한 또 하나의 변화다.
+
+DreamerV1에서는 imagined return을 World Model을 통과해 직접 미분하는 pathwise gradient를 사용했다.
+
+하지만 V2의 Atari 환경에서는 Actor의 action도 categorical distribution에서 sample한다.
+
+따라서 Actor 학습에 대해 다음 두 방법을 고려할 수 있다.
+
+**A. REINFORCE gradient**
+
+```math
+\nabla_\psi J
+\approx
+\mathbb E\left[
+\nabla_\psi\log\pi_\psi(a_t\mid x_t)
+\left(G_t^\lambda-V_\xi(x_t)\right)
+\right].
+```
+
+이는 Actor가 높은 advantage를 받은 action의 확률을 증가시키는 형태다.
+
+**B. Dynamics backpropagation**
+
+V1처럼 imagined return을 Actor의 action과 World Model dynamics를 통해 직접 미분한다. Discrete action과 latent sampling에서는 straight-through gradient를 사용해 미분 경로를 근사한다.
+
+DreamerV2는 두 gradient estimator를 혼합하는 Actor loss를 제시한다.
+
+```math
+\boxed{
+\begin{aligned}
+\mathcal L_{\mathrm{actor}}
+=-\mathbb E\sum_t\Big[
+&\rho\log\pi_\psi(a_t\mid x_t)
+\,\mathrm{sg}\left(G_t^\lambda-V_\xi(x_t)\right)\\
+&+(1-\rho)G_t^\lambda\\
+&+\eta\mathcal H\left(\pi_\psi(\cdot\mid x_t)\right)
+\Big].
+\end{aligned}
+}
+```
+
+여기서
+
+- $\rho$: REINFORCE와 dynamics backpropagation의 혼합 비율
+- $\eta$: Policy entropy regularization의 가중치
+- $\mathcal H$: Actor의 action entropy
+
+를 뜻한다.
+
+**실제 Atari 실험에서는 $\rho=1$을 사용했다.**
+
+즉 Atari에서의 Actor는 사실상 REINFORCE gradient를 사용하며, dynamics를 직접 통과하는 Actor gradient는 기본 설정에서 사용하지 않는다.
+
+반대로 continuous-control 실험에서는 $\rho=0$을 사용해 dynamics backpropagation을 적용했다.
+
+이는 **V2의 discrete RSSM이 학습 중 STE를 사용한다는 사실과, Atari의 Actor가 STE를 통해 pathwise gradient를 이용한다는 주장이 서로 다르다**는 점을 보여준다.
+
+정리하면 다음과 같다.
+
+| | World Model gradient | Atari Actor gradient |
+|---|---|---|
+| DreamerV2 | Discrete latent에 STE 사용 | REINFORCE 중심 |
+
+저자들은 Atari에서 REINFORCE가 dynamics backpropagation보다 훨씬 좋은 성능을 보였다고 보고했다. 이는 pathwise gradient가 discrete dynamics에서 근사적인 straight-through gradient를 사용하므로 bias를 갖는다는 점과 관련될 수 있다.
+
+다만 World Model을 완벽하게 학습했다고 가정하는 것은 아니므로, REINFORCE 역시 **실제 환경이 아닌 learned imagination MDP의 return을 최적화한다**는 model bias의 한계를 갖는다.
+
+#### 7. 실험 결과와 Ablation Study
+
+DreamerV2는 Atari 55개 게임을 대상으로 평가되었다.
+
+원논문은 200M Atari frames 기준으로 DreamerV2가 주요 single-GPU model-free baseline인 IQN과 Rainbow를 여러 집계 지표에서 능가했다고 보고한다.
+
+대표적인 결과는 다음과 같다.
+
+| 방법 | Gamer-normalized median | Clipped record-normalized mean |
+|---|---:|---:|
+| DreamerV2 | 2.15 | 0.28 |
+| IQN | 1.29 | 0.21 |
+| Rainbow | 1.47 | 0.17 |
+
+Human-normalized median이 1을 초과했다는 것은 게임별 인간 기준 점수로 정규화한 성능의 중앙값이 1보다 크다는 뜻이며, **55개 게임 모두에서 인간보다 높은 점수를 얻었다는 뜻은 아니다.**
+
+원논문은 한 대의 GPU와 한 개의 environment instance로 200M Atari frames를 약 10일 이내에 학습할 수 있었다고 보고한다.
+
+**어떤 요소가 성능 향상에 중요한가?**
+
+Ablation에서는 다음 요소들이 중요하다고 나타났다.
+
+| 설정 | Clipped record-normalized mean |
+|---|---:|
+| DreamerV2 (ablation baseline) | 0.25 |
+| Gaussian latent로 교체 | 0.19 |
+| KL Balancing 제거 | 0.16 |
+| REINFORCE 제거 | 0.15 |
+| Image reconstruction gradient 제거 | 0.01 |
+
+*이 표는 원논문 Table 2의 ablation 결과로, 앞선 Table 1의 최종 모델과 약간 다른 버전을 사용한다. 따라서 두 표의 DreamerV2 baseline 수치가 다르다.*
+
+이 결과는 세 가지를 시사한다.
+
+첫째, **Categorical representation은 Gaussian보다 실제 Atari 성능에서 유리했다.**
+
+둘째, **KL Balancing은 Prior를 더 정확하게 학습시키는 데 중요한 역할을 했다.**
+
+셋째, **Image reconstruction으로부터 얻는 gradient가 World Model representation 학습에 매우 중요했다.** 단순히 현재 task의 reward prediction만을 잘하는 representation이 아니라, 환경의 일반적인 시각적 정보를 보존하는 representation이 도움이 될 수 있다는 것이다.
+
+#### 8. DreamerV2의 의의와 한계
+
+**의의:** DreamerV2는 Atari와 같은 어려운 환경에서도, 별도로 학습된 World Model에서 imagined trajectory를 생성하여 경쟁력 있는 Actor를 학습할 수 있음을 보여줬다.
+
+특히 다음 기법들은 이후 Dreamer 계열의 중요한 기반이 되었다.
+
+- Categorical stochastic RSSM
+- Straight-Through Gradient Estimator
+- KL Balancing
+- REINFORCE를 활용한 Actor 학습
+
+**한계:** Discrete latent를 사용한다고 실제 환경의 모든 불확실성을 정확히 표현하는 것은 아니다. 또한 Actor는 여전히 학습된 dynamics와 reward model의 예측을 이용하므로 model exploitation 문제가 남아 있다.
+
+다양한 환경에서 동일한 학습 설정이 안정적으로 작동하는지도 별도의 문제다.
+
+**DreamerV3로 이어지는 질문:** 좋은 World Model 구조와 Actor–Critic 학습법을 확보했다면, 이제 서로 다른 게임·로봇·reward scale에서도 hyperparameter를 다시 조정하지 않고 같은 알고리즘을 사용할 수 있을까?
+
+DreamerV3는 이 문제를 다루면서 symlog, two-hot prediction, return normalization, free-bits 기반 KL 안정화 등을 도입·개선한다. 반면 categorical latent와 KL balancing은 V2에서 이미 중요한 구성 요소로 등장했다.
+
+#### 이해도 점검 — 서술형 문제
+
+> 정답 없이 스스로 설명해 보는 문제다. 1~5번은 핵심 개념, 6번은 심화 문제다.
+
+1. **Discrete Latent:** DreamerV1의 Gaussian stochastic state와 V2의 categorical state는 어떤 차이가 있는가? 32개의 categorical variable이 각각 32개의 category를 가질 때 latent representation은 어떻게 구성되는가?
+2. **Straight-Through Estimator:** Categorical sampling을 미분할 수 없는 이유를 설명하고, $\widetilde z=z^{\mathrm{sample}}+p-\mathrm{sg}(p)$를 사용했을 때 forward와 backward가 각각 어떻게 동작하는지 유도하라.
+3. **KL Balancing:** 일반적인 prior–posterior KL이 학습시키는 두 방향은 무엇인가? DreamerV2가 prior 쪽 gradient를 더 강조한 이유와 $\alpha,\beta$의 차이를 설명하라.
+4. **Discount Predictor와 $\lambda$-return:** DreamerV2에서 discount predictor가 필요한 이유는 무엇인가? 예측 discount와 bootstrap value가 $\lambda$-return에 어떻게 들어가는지 설명하라.
+5. **Actor Gradient:** DreamerV1의 Actor gradient와 DreamerV2의 Atari Actor gradient는 어떻게 다른가? World Model에 STE를 사용하면서 Actor에는 REINFORCE를 사용하는 것이 왜 모순이 아닌지 설명하라.
+6. **심화 — 결과 해석:** Categorical latent, KL balancing, image reconstruction gradient를 제거했을 때의 ablation 결과를 해석하라. 이로부터 World Model에서 어떤 representation을 학습하는 것이 중요한지 설명하라.
+
+**자가 확인 기준:** V2에서 계승한 요소와 새롭게 바뀐 요소를 구별하고, **World Model의 gradient와 Actor의 gradient가 서로 다른 목적함수를 통해 계산된다**는 사실을 설명할 수 있는지 확인하자.
 
 #### 5.4.3 DreamerV3 (Hafner et al., 2023) — 다양한 환경에서 공통 설정으로 학습
 
@@ -1792,6 +2232,7 @@ WAM은 세계 예측과 실행 가능한 행동 선택의 연결을 핵심으로
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-10-15 | DreamerV2 5.4.2절을 이전 대화에서 작성한 상세 초안으로 전면 교체: categorical RSSM, STE, discount predictor, KL balancing, actor gradient, Atari 실험 및 ablation, 서술형 점검 6문항 (초안 내용 유지, GitHub 수식 fenced code 표기만 변환) |
 | 2026-10-15 | Dreamer 5.4.1절 Model Bias 문단 **전면 재구성**: 느린 그리퍼 동작의 데이터에서 빠른 동작으로 이동하는 distribution shift, 잘못 예측한 높은 reward를 선호하는 model exploitation, 실제 실패 관측에 의한 model 교정과 한계를 기존 학습 순서에 통합 |
 | 2026-10-15 | Dreamer V1(5.4.1절)의 ‘읽을 질문’을 **서술형 이해도 점검 6문항**으로 교체: PlaNet과의 차이, 실제 데이터/상상 rollout, Actor·Critic·RSSM의 역할, $\lambda$-return과 bootstrap, A2C 대비 pathwise gradient, model bias (정답 미포함) |
 | 2026-10-14 | Dreamer 5.4.1절에 원논문 Eq. (7)–(8)의 Actor/Critic loss를 명시하고, A2C advantage-weighted log-prob와 Dreamer reparameterized actor gradient 비교. One-step chain rule, two-step return·BPTT, frozen world model/critic의 gradient 통과 경로를 보강 |
