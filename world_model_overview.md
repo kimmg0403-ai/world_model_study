@@ -1472,13 +1472,58 @@ World Model이 학습하는 prediction head는 다음과 같다.
 | Reward predictor | $p(r_t\mid x_t)$ |
 | Discount predictor | $p(\gamma_t\mid x_t)$ |
 
-여기서 **Discount Predictor**를 살펴볼 필요가 있다.
+여기서 **Discount Predictor**를 살펴볼 필요가 있다. **Episode termination과 고정 discount factor $\gamma$는 서로 다르다.** Termination은 미래 reward가 존재하는지를 결정하고, $\gamma\in[0,1]$는 episode가 계속되더라도 멀리 있는 reward를 얼마나 작게 볼지 정하는 **학습 전 지정된 hyperparameter**다. 예를 들어 $\gamma=0.99$라면 두 step 뒤의 reward에는 $\gamma^2=0.9801$이 적용된다. DreamerV2의 [원논문 §2.1](https://ar5iv.labs.arxiv.org/html/2010.02193)과 [공식 Atari config](https://github.com/danijar/dreamerv2/blob/main/dreamerv2/configs.yaml)에서는 **$\gamma=0.999$**를 사용한다. 단, 논문의 Appendix D 표에는 $0.995$라는 상이한 기재가 있으므로 여기서는 공식 구현을 기준으로 설명한다.
 
-Episode가 종료되면 그 이후의 reward를 누적해서는 안 된다. DreamerV2는 학습 데이터에 terminal 정보를 반영한 discount target을 포함하고, World Model이 이를 예측하도록 한다.
+**(1) 실제 replay에서의 학습 target.** 환경에서 반환한 terminal flag를 $b_t=\mathbf{1}[\text{terminal at }t]\in\{0,1\}$로 정의하자. 공식 구현은 관측을 전처리하면서
 
-실제 데이터의 discount는 episode 내부에서는 지정된 discount factor를 가지며, 종료 시점에서는 0이 된다. Discount predictor는 이를 Bernoulli likelihood로 학습한다.
+```math
+\boxed{
+d_t^{\rm env}=\gamma(1-b_t)
+=\begin{cases}
+\gamma,& b_t=0\quad(\text{episode 진행 중}),\\
+0,&b_t=1\quad(\text{terminal})
+\end{cases}
+}
+```
 
-따라서 미래의 imagined trajectory에서 episode가 끝날 가능성도 고려할 수 있다.
+를 discount target으로 만든다. **종료 여부 $b_t$는 이진값이지만, 실제 discount target은 $0$ 또는 $\gamma$다.** Atari에서는 $0$ 또는 $0.999$다.
+
+Discount head는 $x_t$에서 sigmoid를 적용한 $m_t=\sigma(f_{\theta_{\rm disc}}(x_t))$를 내놓고 Bernoulli likelihood의 parameter로 사용한다. 실제 World Model training에서 이 head는 다음 BCE를 최소화한다. $0\leq d_t^{\rm env}\leq1$이므로 **fractional soft label**로 넣을 수 있다.
+
+```math
+\mathcal L_{{\rm disc},t}
+=-d_t^{\rm env}\log m_t
+-(1-d_t^{\rm env})\log(1-m_t).
+```
+
+따라서 이상적인 예측값은 $m_t\approx\mathbb E[d_t^{\rm env}\mid x_t]=\gamma\Pr(b_t=0\mid x_t)$다. 개념적으로 **continuation probability와 고정 discount의 곱**이다. 중요한 구현상 주의점은 공식 코드가 **이미 $\gamma$가 곱해진 target으로 학습하므로 discount head의 mean을 그대로 사용하고, 추론 시 $\gamma$를 다시 곱하지 않는다**는 것이다.
+
+**(2) Imagination에서의 계산.** 실제 종료 여부를 모르는 imagined trajectory에서는 $\hat d_t=m_t$를 사용해 각 시점의 $\lambda$-return을 계산한다.
+
+```math
+\boxed{
+G_t^\lambda
+=\hat r_t+\hat d_t\left[
+(1-\lambda)V_\xi(x_{t+1})
++\lambda G_{t+1}^\lambda
+\right],\qquad
+G_H^\lambda=V_\xi(x_H).
+}
+```
+
+예를 들어 $\gamma=0.999$이고 continuation probability가 $0.8$로 예측되면 $\hat d_t\approx0.7992$가 된다. 즉 **다음 시점의 return을 $0.7992$배 반영**한다. 실제 imagination을 즉시 중단시키는 것이 아니라, terminal 가능성을 기대 return에 부드럽게 반영하는 계산이다. 따라서 2 step 뒤 reward에는 $\hat d_t\hat d_{t+1}$ 같은 누적 곱이 적용된다.
+
+공식 구현은 $\lambda$-return뿐 아니라 **Actor/Critic loss의 각 시점 가중치**도 cumulative predicted discount로 조정한다.
+
+```math
+w_0=1,\qquad
+w_t=\prod_{k=0}^{t-1}\hat d_k,\qquad
+\mathcal L_{\rm actor/critic}
+=\mathbb E\left[\sum_t w_t\,\ell_t\right]
+\quad\text{(개념적 표기)}.
+```
+
+이로써 종료되었을 가능성이 높은 먼 미래의 loss 기여도도 줄어든다. 참고로 **$\lambda$는 $n$-step return을 혼합하는 별도의 hyperparameter**이므로 $\gamma$ 및 $\hat d_t$와 구별해야 한다.
 
 World Model의 전체 목적함수는 개념적으로 다음과 같다.
 
@@ -2326,6 +2371,7 @@ WAM은 세계 예측과 실행 가능한 행동 선택의 연결을 핵심으로
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-10-16 | DreamerV2 Discount Predictor: fixed $\gamma$와 terminal 구분, Atari 0.999, $d_t=\gamma(1-b_t)$ target, Bernoulli soft-label BCE, expected discount와 $\lambda$-return 및 누적 Actor/Critic loss 가중치 설명 추가 |
 | 2026-10-16 | DreamerV2 5.4.2 KL Balancing에 categorical KL의 행별 합산식($32\times32$), posterior/prior 확률과 one-hot sample의 구분, KL 자체에는 STE가 필요 없다는 설명 추가 |
 | 2026-10-16 | DreamerV2 5.4.2 STE 설명에 posterior $\phi$까지의 decoder→softmax Jacobian→logits chain rule, 구체적 3-category gradient 예시, KL Balancing의 direct gradient와 STE의 차이를 보강 |
 | 2026-10-16 | DreamerV2 categorical latent에 posterior logits/softmax의 $(32,32)$ 확률 행렬(행합 1)과 행별 sampling 후 32개 one-hot vector(총 1024차원)의 차이, prior/posterior 공통 parameterization을 명시 |
