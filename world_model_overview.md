@@ -1512,6 +1512,18 @@ p_\theta(z_t\mid u_t)
 \right).
 ```
 
+**Categorical distribution 사이의 KL은 어떻게 계산하는가?** 한 categorical 변수의 posterior 확률을 $q_j$, prior 확률을 $p_j$라고 하면 $D_{\mathrm{KL}}(q\Vert p)=\sum_j q_j\log(q_j/p_j)$이다. DreamerV2에서는 **32개의 categorical 변수가 조건부 독립인 곱분포**이므로, 각 행의 KL을 계산한 뒤 합한다.
+
+```math
+\boxed{
+D_{\mathrm{KL}}(q_\phi\Vert p_\theta)
+=\sum_{i=1}^{32}\sum_{j=1}^{32}
+q_{t,i,j}\log\frac{q_{t,i,j}}{p_{t,i,j}}.
+}
+```
+
+여기서 $q_{t,i,j}$와 $p_{t,i,j}$는 각각 posterior와 prior가 낸 **softmax 확률값**이다. Sampling된 one-hot vector를 대입하는 것이 아니라, 두 $(32,32)$ 확률 행렬을 직접 비교하므로 KL 계산에 STE는 필요 없다.
+
 이 KL을 줄이는 데에는 서로 다른 두 방향이 존재한다.
 
 **첫 번째 방향: Prior가 Posterior에 접근한다.**
@@ -2314,6 +2326,7 @@ WAM은 세계 예측과 실행 가능한 행동 선택의 연결을 핵심으로
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-10-16 | DreamerV2 5.4.2 KL Balancing에 categorical KL의 행별 합산식($32\times32$), posterior/prior 확률과 one-hot sample의 구분, KL 자체에는 STE가 필요 없다는 설명 추가 |
 | 2026-10-16 | DreamerV2 5.4.2 STE 설명에 posterior $\phi$까지의 decoder→softmax Jacobian→logits chain rule, 구체적 3-category gradient 예시, KL Balancing의 direct gradient와 STE의 차이를 보강 |
 | 2026-10-16 | DreamerV2 categorical latent에 posterior logits/softmax의 $(32,32)$ 확률 행렬(행합 1)과 행별 sampling 후 32개 one-hot vector(총 1024차원)의 차이, prior/posterior 공통 parameterization을 명시 |
 | 2026-10-16 | DreamerV2 5.4.2 Categorical Latent 설명 정교화: Gaussian도 급격한 전이 표현 가능, World Models의 Gaussian Mixture와 PlaNet·V1의 단일 Gaussian 구분, aggregate posterior의 multimodality·categorical의 장점과 한계, 원논문의 가설/실험 결과 구분 |
