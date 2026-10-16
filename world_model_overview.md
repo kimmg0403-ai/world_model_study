@@ -1260,7 +1260,7 @@ DreamerV2의 핵심 아이디어는 **DreamerV1의 imagination-based Actor–Cri
 
 #### 1. Categorical Latent — Gaussian을 대체하는 새로운 상태 표현
 
-기존 DreamerV1의 RSSM에서는 stochastic state를 diagonal Gaussian으로 모델링했다.
+기존 DreamerV1의 RSSM에서는 stochastic state를 **단일 diagonal Gaussian**으로 모델링했다. PlaNet도 같은 유형의 Gaussian prior/posterior를 사용했다.
 
 ```math
 z_t\sim q_\phi(z_t\mid u_t,o_t)
@@ -1286,19 +1286,32 @@ z_t\in\{0,1\}^{1024}.
 
 이 구조는 1024개의 독립적인 binary variable과는 다르다. 각 32차원 group마다 정확히 하나의 category를 선택한다.
 
-**왜 Categorical이 유리할 수 있는가?**
+**왜 Categorical이 유리할 수 있는가? — 먼저 Gaussian의 능력을 구분하자.**
 
-가령 Atari 게임에서 캐릭터가 특정 문으로 이동한다고 하자. 다음 상태는 현재 방에 남아 있는 상태이거나 새로운 방에 들어간 상태일 수 있다.
+중요한 반론이 있다. **급격한 상태 변화 자체는 Gaussian도 모델링할 수 있다.** 어떤 action 이후 Gaussian mean $\mu_\theta(x_t,a_t)$가 이전과 전혀 다른 위치로 이동하면, 분산이 작더라도 상태가 급격히 바뀔 수 있다. 따라서 **'Gaussian에서는 abrupt transition이 불가능하지만 categorical에서는 가능하다'는 주장은 틀리다.**
 
-하나의 Gaussian 분포는 이런 서로 구분되는 가능성들을 표현하는 데 제약이 있을 수 있다. 반면 categorical representation은 서로 다른 상태 구성을 이산적으로 선택할 수 있다.
+또한 **World Models(2018)의 MDN-RNN은 Gaussian Mixture를 사용했지만, PlaNet과 DreamerV1의 RSSM은 조건부로 하나의 Gaussian을 사용했다.** World Models의 MDN은 다음과 같이 여러 mode를 직접 표현할 수 있다.
 
-원논문에서는 다음과 같은 가능성을 제시한다.
+```math
+p(z_{t+1}\mid x_t,a_t)
+=\sum_{k=1}^{M}\pi_{t,k}
+\mathcal N(z_{t+1};\mu_{t,k},\Sigma_{t,k}).
+```
 
-- Categorical prior는 각 categorical 변수에서 posterior들의 혼합 분포를 표현하는 데 유리할 수 있다.
-- One-hot representation의 sparsity가 일반화에 도움이 될 수 있다.
-- Atari에서 발생하는 불연속적인 상태 변화에 적합한 inductive bias를 제공할 수 있다.
+예를 들어 같은 입력에서 다음 latent가 $-5$나 $+5$ 근방으로 갈 수 있다면, $0.5\mathcal N(-5,0.01)+0.5\mathcal N(5,0.01)$은 두 가능성을 각각 높은 확률로 표현한다. 반면 단일 Gaussian은 두 봉우리를 그대로 재현할 수 없다. **Mixture의 weight를 한 mode에 1로 몰고 variance를 0에 가깝게 만드는 것은 '하나의 거의 확정적인 급격한 전이'를 나타내지만, 두 미래가 동시에 가능한 불확실성을 보존하는 것은 아니다.** 이를 나타내려면 서로 다른 component에 확률질량을 남겨야 한다.
 
-다만 **categorical latent가 우수한 정확한 이유는 원논문에서도 확정적으로 규명하지 않았다.** 위 설명들은 저자들이 제시한 가설이다.
+그렇다면 DreamerV2의 비교 대상은 **일반적인 Gaussian Mixture 전체가 아니라, PlaNet·V1에서 실제 사용한 *단일 Gaussian*이다.** DreamerV2 [원논문 §3.2 Categorical Latents](https://ar5iv.labs.arxiv.org/html/2010.02193)는 categorical이 더 좋은 이유를 확정적으로 설명하지 않고, 다음과 같은 **가설**을 제시한다.
+
+- **Aggregate posterior의 다중 가능성:** 동일한 이전 history에서 가능한 다음 observation이 여러 개라면, 그 관측별 posterior를 평균한 aggregate posterior는 **Gaussian들의 mixture**가 될 수 있다. 일반적으로 이것은 하나의 Gaussian이 아니다. 반면 단일 categorical 변수는 categorical들의 혼합을 다시 categorical로 나타낼 수 있다. 예를 들어 두 posterior가 각각 $(0.9,0.1)$과 $(0.1,0.9)$이면, 동일 가중 혼합은 다시 categorical $(0.5,0.5)$이다.
+- **Sparsity:** 32개 one-hot group을 flatten하면 전체 1024차원 중 32개만 활성화되어, 일반화에 도움이 될 가능성이 있다.
+- **최적화 특성:** Straight-through gradient의 근사 방식이 optimization을 더 쉽게 만들 가능성이 있다.
+- **Discrete inductive bias:** 적의 소멸, 아이템 획득, 방 전환처럼 불연속적인 사건을 표현하는 데 유리한 편향을 제공할 수 있다.
+
+여기서 **categorical mixture가 다시 categorical이라는 성질은 각각의 categorical 변수의 분포에 대한 이야기**다. 여러 categorical 변수의 *독립적인 곱분포*를 혼합한 전체 joint distribution까지 항상 다시 같은 factorized 형태가 된다는 뜻은 아니다. 따라서 **DreamerV2가 모든 multimodal dynamics를 완벽하게 표현한다는 결론은 나오지 않는다.**
+
+반대로 World Models처럼 **Gaussian Mixture를 직접 사용한다면 이론적으로 여러 mode를 표현할 수 있으므로, categorical이 Gaussian Mixture보다 무조건 더 표현력이 높다고 주장할 근거도 없다.** 나아가 단일 Gaussian latent라도 비선형 decoder와 다단계 stochastic rollout을 통과한 **관측 분포 자체는 복잡해질 수 있다**. 이 논의는 *특정 시점의 조건부 latent prior의 분포족*을 비교한 것이지, Gaussian 기반 모델 전체의 생성 능력을 부정하는 것이 아니다.
+
+**실험적으로 확인된 사실**은 DreamerV2의 Atari ablation에서 categorical latent가 Gaussian latent보다 42개 게임에서 우세했고, 8개에서는 열세, 5개에서는 비슷했다는 것이다. **왜 그랬는지에 대한 정확한 원인은 여전히 가설 수준**이며, 위의 장점들을 categorical이 다른 모든 분포족보다 우월하다는 일반 정리로 받아들여서는 안 된다.
 
 또한 개별 category가 '성공', '실패', '점프' 같은 사람이 정한 의미를 갖는 것은 아니다. Category의 의미는 영상 및 reward prediction을 학습하면서 자동으로 형성된다.
 
@@ -2232,6 +2245,7 @@ WAM은 세계 예측과 실행 가능한 행동 선택의 연결을 핵심으로
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-10-16 | DreamerV2 5.4.2 Categorical Latent 설명 정교화: Gaussian도 급격한 전이 표현 가능, World Models의 Gaussian Mixture와 PlaNet·V1의 단일 Gaussian 구분, aggregate posterior의 multimodality·categorical의 장점과 한계, 원논문의 가설/실험 결과 구분 |
 | 2026-10-15 | DreamerV2 5.4.2절을 이전 대화에서 작성한 상세 초안으로 전면 교체: categorical RSSM, STE, discount predictor, KL balancing, actor gradient, Atari 실험 및 ablation, 서술형 점검 6문항 (초안 내용 유지, GitHub 수식 fenced code 표기만 변환) |
 | 2026-10-15 | Dreamer 5.4.1절 Model Bias 문단 **전면 재구성**: 느린 그리퍼 동작의 데이터에서 빠른 동작으로 이동하는 distribution shift, 잘못 예측한 높은 reward를 선호하는 model exploitation, 실제 실패 관측에 의한 model 교정과 한계를 기존 학습 순서에 통합 |
 | 2026-10-15 | Dreamer V1(5.4.1절)의 ‘읽을 질문’을 **서술형 이해도 점검 6문항**으로 교체: PlaNet과의 차이, 실제 데이터/상상 rollout, Actor·Critic·RSSM의 역할, $\lambda$-return과 bootstrap, A2C 대비 pathwise gradient, model bias (정답 미포함) |
