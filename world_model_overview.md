@@ -1387,7 +1387,63 @@ z^{\mathrm{sample}}
 
 이 gradient는 **biased estimator**다. 실제 discrete sampling의 정확한 gradient를 계산하는 것이 아니라 학습을 가능하게 만드는 근사적인 gradient를 사용하는 것이다.
 
-DreamerV2는 STE를 사용해 posterior sampling 이후의 reconstruction/reward loss가 representation network까지 역전파될 수 있도록 한다.
+DreamerV2는 STE를 사용해 posterior sampling 이후의 reconstruction/reward/discount loss가 representation network까지 역전파될 수 있도록 한다.
+
+**Posterior parameter $\phi$의 gradient를 끝까지 계산해 보자.** Posterior head가 출력한 logits를 $\ell_\phi=f_\phi(u_t,o_t)$, 확률을 $p_\phi=\mathrm{softmax}(\ell_\phi)$라 하자. 실제 one-hot sample은 $z^{\mathrm{hard}}$이고 Decoder에는 $\widetilde z=z^{\mathrm{hard}}+p_\phi-\mathrm{sg}(p_\phi)$를 전달한다. 다음은 계산을 명확하게 하기 위해 *한 categorical group과 현재 recurrent state $u_t$를 고정한 직접 gradient 경로*만 쓴 것이다.
+
+예를 들어 reconstruction loss는
+
+```math
+\mathcal L_{\rm rec}
+=-\log p_{\theta_{\rm obs}}(o_t\mid u_t,\widetilde z).
+```
+
+**실제 sample은 one-hot으로 유지하면서 gradient는 softmax를 통과**시키므로 chain rule은
+
+```math
+\boxed{
+\frac{\partial\mathcal L_{\rm rec}}{\partial\phi}
+\overset{\mathrm{STE}}{\approx}
+\frac{\partial\mathcal L_{\rm rec}}{\partial\widetilde z}
+\frac{\partial p_\phi}{\partial\ell_\phi}
+\frac{\partial\ell_\phi}{\partial\phi}.
+}
+```
+
+가 된다. 첫 항은 **실제 one-hot sample에서 계산한 Decoder의 미분**, 두 번째 항은 **softmax Jacobian**, 마지막 항은 **logits network의 parameter gradient**다. 일반적인 one-hot sampling의 정확한 gradient를 얻는 것이 아니라 **대체 gradient(surrogate)를 정의한 것**이므로 근사 기호를 쓴다. RSSM 전체 BPTT에서는 이전 latent와 recurrent state를 통한 다른 gradient 경로도 존재한다.
+
+Softmax Jacobian을 성분별로 쓰면
+
+```math
+\frac{\partial p_i}{\partial\ell_j}
+=p_i(\delta_{ij}-p_j).
+```
+
+따라서 $g_i=\partial\mathcal L_{\rm rec}/\partial\widetilde z_i$로 놓으면,
+
+```math
+\boxed{
+\frac{\partial\mathcal L_{\rm rec}}{\partial\ell_j}
+\overset{\mathrm{STE}}{\approx}
+p_j\left(g_j-\sum_i p_i g_i\right).
+}
+```
+
+**선택된 one-hot 위치뿐 아니라 나머지 category의 logit도 학습된다.** 예를 들어 $p=(0.2,0.5,0.3)$이고 sample은 $(0,1,0)$이며, 작은 toy downstream loss를 $-\widetilde z_1-2\widetilde z_2$로 정하면 $g=(-1,-2,0)$이므로 gradient는 $(0.04,-0.40,0.36)$이다. Gradient descent에서는 두 번째 category의 logit을 증가시키는 방향으로 업데이트한다.
+
+**반면 KL의 gradient는 STE가 필요 없다.** KL은 one-hot sample끼리 비교하지 않고, **prior/posterior가 출력한 확률분포 전체**를 비교하기 때문이다. 한 categorical group에 대해
+
+```math
+D_{\rm KL}(q_\phi\Vert p_\theta)
+=\sum_{j=1}^{32}
+q_{\phi,j}\log\frac{q_{\phi,j}}{p_{\theta,j}}
+```
+
+는 probability vector에서 직접 미분할 수 있다. 다음 KL Balancing 절의 $\alpha D_{\rm KL}(\mathrm{sg}(q_\phi)\Vert p_\theta)+(1-\alpha)D_{\rm KL}(q_\phi\Vert\mathrm{sg}(p_\theta))$ 중 **posterior 분포에 대한 직접 KL gradient는 두 번째 항**, prior에 대한 직접 gradient는 첫 번째 항에서 생긴다. (공유된 recurrent computation을 통한 간접적인 gradient 경로는 별개다.)
+
+**정리:** Posterior는 **reconstruction/reward/discount NLL로부터 STE를 거친 gradient**와 **prior–posterior KL로부터 직접 계산한 gradient**를 모두 받는다. STE는 Gaussian의 reparameterization과 달리 일반적으로 **biased gradient estimator**다.
+
+
 
 이 점은 이후 Actor 학습에서 사용되는 REINFORCE와 구분해야 한다. **STE는 V2의 World Model 학습에 핵심적으로 사용되고, Atari Actor 학습에는 REINFORCE가 주로 사용된다.**
 
@@ -2258,6 +2314,7 @@ WAM은 세계 예측과 실행 가능한 행동 선택의 연결을 핵심으로
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-10-16 | DreamerV2 5.4.2 STE 설명에 posterior $\phi$까지의 decoder→softmax Jacobian→logits chain rule, 구체적 3-category gradient 예시, KL Balancing의 direct gradient와 STE의 차이를 보강 |
 | 2026-10-16 | DreamerV2 categorical latent에 posterior logits/softmax의 $(32,32)$ 확률 행렬(행합 1)과 행별 sampling 후 32개 one-hot vector(총 1024차원)의 차이, prior/posterior 공통 parameterization을 명시 |
 | 2026-10-16 | DreamerV2 5.4.2 Categorical Latent 설명 정교화: Gaussian도 급격한 전이 표현 가능, World Models의 Gaussian Mixture와 PlaNet·V1의 단일 Gaussian 구분, aggregate posterior의 multimodality·categorical의 장점과 한계, 원논문의 가설/실험 결과 구분 |
 | 2026-10-15 | DreamerV2 5.4.2절을 이전 대화에서 작성한 상세 초안으로 전면 교체: categorical RSSM, STE, discount predictor, KL balancing, actor gradient, Atari 실험 및 ablation, 서술형 점검 6문항 (초안 내용 유지, GitHub 수식 fenced code 표기만 변환) |
