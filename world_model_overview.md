@@ -1275,7 +1275,20 @@ z_t=(z_t^{(1)},\ldots,z_t^{(K)}),
 z_t^{(i)}\sim\mathrm{Categorical}(p_t^{(i)}).
 ```
 
-각 $z_t^{(i)}$는 하나의 category를 선택하는 one-hot random variable이다.
+각 $z_t^{(i)}$는 하나의 category를 선택하는 one-hot random variable이다. **확률 파라미터와 실제 sample은 구별해야 한다.** Posterior Network는 $(u_t,o_t)$를 입력받아 32개 group 각각에 대한 **32개의 logits**을 출력하고, 각 group에 softmax를 적용해 $P_t=(p_{t,i,j})\in[0,1]^{32\times32}$라는 확률 행렬을 만든다. 일반적으로 이 **확률 행렬 자체는 one-hot이 아니다.** 각 행의 합은 1이며, 각 행에서 하나씩 sampling한 결과가 비로소 32개의 one-hot vector로 이루어진 $z_t$가 된다.
+
+```math
+\begin{aligned}
+&p_{t,i,j}=\frac{\exp(\ell_{t,i,j})}
+{\sum_{c=1}^{32}\exp(\ell_{t,i,c})},
+\qquad \sum_{j=1}^{32}p_{t,i,j}=1,\\
+&z_t^{(i)}\sim\mathrm{Categorical}(p_{t,i,:}),
+\qquad z_t^{(i)}\in\{0,1\}^{32},
+\qquad \sum_{j=1}^{32}z_{t,i,j}=1.
+\end{aligned}
+```
+
+**Training 시 실제 관측 $o_t$를 이용하는 posterior**도, **imagination에서 $o_t$ 없이 예측하는 prior**도 이와 동일한 $(32,32)$ categorical parameterization을 사용한다. 서로 다른 것은 분포를 계산할 때 사용하는 조건 정보다. 위 식의 $p_{t,i,j}$는 category **확률값**을 나타내는 표기이며, 확률분포 모델 $p_\theta(z_t\mid u_t)$를 뜻하는 기호와 혼동하지 말자.
 
 **원논문의 설정은 32개의 categorical variable에 각각 32개의 category를 사용하는 것**이다. 따라서 flatten한 stochastic state는 1024차원이지만, 한 sample에서 값이 1인 원소는 32개뿐이다.
 
@@ -2245,6 +2258,7 @@ WAM은 세계 예측과 실행 가능한 행동 선택의 연결을 핵심으로
 
 | 날짜 | 변경 내용 |
 |---|---|
+| 2026-10-16 | DreamerV2 categorical latent에 posterior logits/softmax의 $(32,32)$ 확률 행렬(행합 1)과 행별 sampling 후 32개 one-hot vector(총 1024차원)의 차이, prior/posterior 공통 parameterization을 명시 |
 | 2026-10-16 | DreamerV2 5.4.2 Categorical Latent 설명 정교화: Gaussian도 급격한 전이 표현 가능, World Models의 Gaussian Mixture와 PlaNet·V1의 단일 Gaussian 구분, aggregate posterior의 multimodality·categorical의 장점과 한계, 원논문의 가설/실험 결과 구분 |
 | 2026-10-15 | DreamerV2 5.4.2절을 이전 대화에서 작성한 상세 초안으로 전면 교체: categorical RSSM, STE, discount predictor, KL balancing, actor gradient, Atari 실험 및 ablation, 서술형 점검 6문항 (초안 내용 유지, GitHub 수식 fenced code 표기만 변환) |
 | 2026-10-15 | Dreamer 5.4.1절 Model Bias 문단 **전면 재구성**: 느린 그리퍼 동작의 데이터에서 빠른 동작으로 이동하는 distribution shift, 잘못 예측한 높은 reward를 선호하는 model exploitation, 실제 실패 관측에 의한 model 교정과 한계를 기존 학습 순서에 통합 |
